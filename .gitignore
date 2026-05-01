@@ -1,0 +1,109 @@
+# ============================================================================
+# macOS
+# ============================================================================
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# ============================================================================
+# Editors / IDEs
+# ============================================================================
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.swp
+*.swo
+*~
+
+# ============================================================================
+# Node / Vite / Frontend
+# ============================================================================
+node_modules/
+dist/
+dist-ssr/
+build/
+.cache/
+.parcel-cache/
+.vite/
+*.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# ============================================================================
+# Python / Data pipeline
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+
+# mypy / ruff
+.mypy_cache/
+.ruff_cache/
+
+# ============================================================================
+# Project-specific
+# ============================================================================
+
+# Скачанные сырые архивы Binance Vision (могут быть огромные)
+data-pipeline/data/raw/
+data-pipeline/data/cache/
+*.zip
+
+# Сгенерированные датасеты (большие, не нужны в git)
+data-pipeline/data/processed/
+frontend/public/data/*.json
+!frontend/public/data/.gitkeep
+
+# Локальные конфиги
+.env
+.env.local
+.env.*.local
+
+# ============================================================================
+# Прочее
+# ============================================================================
+*.tmp
+*.bak
+*.log
