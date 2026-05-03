@@ -118,9 +118,21 @@ export type Timeframe = ChartTimeframe;
 /**
  * Пара таймфреймов: старший (зоны POI) → младший (сканер, footprint, входы).
  *
- * Данные по-прежнему приходят как 5m из pipeline; 1h и 15m HTF считаются на лету.
+ * Данные по-прежнему приходят как 5m из pipeline; 1h и 15m строятся на лету.
+ *
+ * Двухуровневые пары (HTF → LTF):
+ *   - '1h-15m' / '1h-5m' / '15m-5m'
+ *
+ * Single-режим (HTF == LTF): зоны и сканер на одном экране.
+ *   - '1h-1h' / '15m-15m' / '5m-5m'
  */
-export type TfPairId = '1h-15m' | '1h-5m' | '15m-5m';
+export type TfPairId =
+  | '1h-15m'
+  | '1h-5m'
+  | '15m-5m'
+  | '1h-1h'
+  | '15m-15m'
+  | '5m-5m';
 
 export interface DatasetMeta {
   /** Тикер в верхнем регистре, например 'BTCUSDT' */

@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { aggregateTo15m } from './aggregator';
-import type { Candle5m } from '@/types';
+import {
+  aggregateTo15m,
+  aggregate5mTo15mLtf,
+  aggregate5mTo1hLtf,
+} from './aggregator';
+import type { Candle5m, Cluster } from '@/types';
 
 const MS_5M = 5 * 60 * 1000;
 
@@ -128,5 +132,116 @@ describe('aggregateTo15m', () => {
     }
     const result = aggregateTo15m(candles);
     expect(result).toHaveLength(480);
+  });
+});
+
+// ============================================================================
+// LTF-агрегаторы (с merge кластеров): 15m LTF и 1h LTF
+// ============================================================================
+
+/** Утилита: одна реальная свеча с двумя кластерами на price=100 и price=105. */
+function candleWithClusters(opts: { ts: number; open: number; close: number }): Candle5m {
+  const clusters: Cluster[] = [
+    { price: 100, bid: 50, ask: 60, vol: 110, delta: 10 },
+    { price: 105, bid: 30, ask: 90, vol: 120, delta: 60 },
+  ];
+  return makeCandle({
+    timestamp: opts.ts,
+    open: opts.open,
+    high: 110,
+    low: 95,
+    close: opts.close,
+    volume: 230,
+    delta: 70,
+    vpoc_price: 105,
+    max_vol: 120,
+    delta_at_low: 10,
+    delta_at_high: 60,
+    clusters,
+  });
+}
+
+describe('aggregate5mTo15mLtf', () => {
+  it('пустой вход → пустой массив', () => {
+    expect(aggregate5mTo15mLtf([])).toEqual([]);
+  });
+
+  it('3 свечи 5m → 1 свеча 15m с MERGE кластеров (vol суммируется по уровням)', () => {
+    const c1 = candleWithClusters({ ts: 0, open: 100, close: 102 });
+    const c2 = candleWithClusters({ ts: MS_5M, open: 102, close: 104 });
+    const c3 = candleWithClusters({ ts: 2 * MS_5M, open: 104, close: 108 });
+    const [out] = aggregate5mTo15mLtf([c1, c2, c3]);
+    expect(out).toBeDefined();
+    expect(out!.timestamp).toBe(0);
+    expect(out!.open).toBe(100);
+    expect(out!.close).toBe(108);
+    expect(out!.volume).toBe(230 * 3);
+    expect(out!.delta).toBe(70 * 3);
+    // Кластеры объединены по price → 2 уровня; vol на каждом ×3.
+    expect(out!.clusters).toHaveLength(2);
+    expect(out!.clusters.find((cl) => cl.price === 100)?.vol).toBe(330);
+    expect(out!.clusters.find((cl) => cl.price === 105)?.vol).toBe(360);
+    // Volume === sum(clusters.vol) — инвариант формата.
+    const sum = out!.clusters.reduce((s, cl) => s + cl.vol, 0);
+    expect(out!.volume).toBe(sum);
+  });
+
+  it('хвост, не кратный 3, отбрасывается', () => {
+    const c = (i: number) => candleWithClusters({ ts: i * MS_5M, open: 100, close: 100 });
+    expect(aggregate5mTo15mLtf([c(0), c(1)])).toHaveLength(0);
+    expect(aggregate5mTo15mLtf([c(0), c(1), c(2), c(3)])).toHaveLength(1);
+  });
+});
+
+describe('aggregate5mTo1hLtf', () => {
+  it('пустой вход → пустой массив', () => {
+    expect(aggregate5mTo1hLtf([])).toEqual([]);
+  });
+
+  it('12 свечей 5m → 1 свеча 1h с merge кластеров', () => {
+    const candles: Candle5m[] = [];
+    for (let i = 0; i < 12; i++) {
+      candles.push(candleWithClusters({ ts: i * MS_5M, open: 100, close: 100 }));
+    }
+    const result = aggregate5mTo1hLtf(candles);
+    expect(result).toHaveLength(1);
+    const out = result[0]!;
+    expect(out.timestamp).toBe(0);
+    expect(out.volume).toBe(230 * 12);
+    expect(out.delta).toBe(70 * 12);
+    expect(out.clusters).toHaveLength(2);
+    expect(out.clusters.find((cl) => cl.price === 100)?.vol).toBe(110 * 12);
+    expect(out.clusters.find((cl) => cl.price === 105)?.vol).toBe(120 * 12);
+    // VPOC корректен (105 имеет больший vol).
+    expect(out.vpoc_price).toBe(105);
+    // Volume === sum(clusters.vol) — инвариант.
+    const sum = out.clusters.reduce((s, cl) => s + cl.vol, 0);
+    expect(out.volume).toBe(sum);
+  });
+
+  it('хвост, не кратный 12, отбрасывается', () => {
+    const candles: Candle5m[] = [];
+    for (let i = 0; i < 25; i++) {
+      candles.push(candleWithClusters({ ts: i * MS_5M, open: 100, close: 100 }));
+    }
+    // 25 / 12 = 2 полных, 1 в остатке → 2 свечи 1h
+    expect(aggregate5mTo1hLtf(candles)).toHaveLength(2);
+  });
+
+  it('OHLC берётся с краёв слайса, high/low — экстремумы по слайсу', () => {
+    const candles: Candle5m[] = [];
+    for (let i = 0; i < 12; i++) {
+      // Делаем у одной свечи в середине очень высокий high и очень низкий low.
+      const overrides = i === 5 ? { high: 200, low: 50 } : {};
+      candles.push({
+        ...candleWithClusters({ ts: i * MS_5M, open: 100 + i, close: 100 + i }),
+        ...overrides,
+      } as Candle5m);
+    }
+    const out = aggregate5mTo1hLtf(candles)[0]!;
+    expect(out.open).toBe(100); // первая свеча
+    expect(out.close).toBe(111); // последняя свеча (i=11)
+    expect(out.high).toBe(200);
+    expect(out.low).toBe(50);
   });
 });

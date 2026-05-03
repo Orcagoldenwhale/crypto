@@ -138,23 +138,41 @@ function deltaNearestLevel(clusters: readonly Cluster[], level: number): number 
   return best.delta;
 }
 
-function mergeThree5mTo15mLtf(a: Candle5m, b: Candle5m, c: Candle5m): Candle5m {
-  const clusters = mergeClustersFromSlice([a, b, c]);
-  const high = Math.max(a.high, b.high, c.high);
-  const low = Math.min(a.low, b.low, c.low);
-  const volume = a.volume + b.volume + c.volume;
-  const delta = a.delta + b.delta + c.delta;
+/**
+ * Склейка произвольного слайса 5m свечей в одну LTF-свечу с merge кластеров.
+ *
+ * Используется и для 15m (slice длиной 3), и для 1h (slice длиной 12).
+ * Возвращаемая свеча структурно совместима с Candle5m (с реальными кластерами,
+ * VPOC, delta_at_low/high) — её можно класть в footprint и в сканер.
+ *
+ * Предполагается: slice непустой и упорядочен по времени.
+ */
+function mergeSliceToLtf(slice: readonly Candle5m[]): Candle5m {
+  const first = slice[0]!;
+  const last = slice[slice.length - 1]!;
+  const clusters = mergeClustersFromSlice(slice);
+
+  let high = first.high;
+  let low = first.low;
+  let volume = 0;
+  let delta = 0;
+  for (const c of slice) {
+    if (c.high > high) high = c.high;
+    if (c.low < low) low = c.low;
+    volume += c.volume;
+    delta += c.delta;
+  }
 
   if (clusters.length === 0) {
     return {
-      timestamp: a.timestamp,
-      open: a.open,
+      timestamp: first.timestamp,
+      open: first.open,
       high,
       low,
-      close: c.close,
+      close: last.close,
       volume,
       delta,
-      vpoc_price: a.vpoc_price,
+      vpoc_price: first.vpoc_price,
       max_vol: 0,
       delta_at_low: 0,
       delta_at_high: 0,
@@ -173,11 +191,11 @@ function mergeThree5mTo15mLtf(a: Candle5m, b: Candle5m, c: Candle5m): Candle5m {
   }
 
   return {
-    timestamp: a.timestamp,
-    open: a.open,
+    timestamp: first.timestamp,
+    open: first.open,
     high,
     low,
-    close: c.close,
+    close: last.close,
     volume,
     delta,
     vpoc_price,
@@ -195,10 +213,24 @@ function mergeThree5mTo15mLtf(a: Candle5m, b: Candle5m, c: Candle5m): Candle5m {
 export function aggregate5mTo15mLtf(candles5m: readonly Candle5m[]): Candle5m[] {
   const result: Candle5m[] = [];
   for (let i = 0; i + 2 < candles5m.length; i += 3) {
-    const a = candles5m[i]!;
-    const b = candles5m[i + 1]!;
-    const c = candles5m[i + 2]!;
-    result.push(mergeThree5mTo15mLtf(a, b, c));
+    result.push(mergeSliceToLtf(candles5m.slice(i, i + 3)));
+  }
+  return result;
+}
+
+/**
+ * Строит 1h LTF с реальными кластерами: каждая свеча = склейка ровно 12×5m.
+ *
+ * Используется в single-режиме (пара '1h-1h'), где зоны и сканер
+ * работают на одном и том же часовом таймфрейме, и нужен полноценный
+ * footprint с кластерами на нём.
+ *
+ * Хвост, не кратный 12, отбрасываем.
+ */
+export function aggregate5mTo1hLtf(candles5m: readonly Candle5m[]): Candle5m[] {
+  const result: Candle5m[] = [];
+  for (let i = 0; i + 11 < candles5m.length; i += 12) {
+    result.push(mergeSliceToLtf(candles5m.slice(i, i + 12)));
   }
   return result;
 }

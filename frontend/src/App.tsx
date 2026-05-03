@@ -15,7 +15,12 @@ import { ClusterTooltip } from '@/components/ClusterTooltip';
 import { DropOverlay } from '@/components/DropOverlay';
 import { TfPairSelector } from '@/components/TfPairSelector';
 import { generateMockData } from '@/data/mockGenerator';
-import { aggregateTo15m, aggregateTo1h, aggregate5mTo15mLtf } from '@/data/aggregator';
+import {
+  aggregateTo15m,
+  aggregateTo1h,
+  aggregate5mTo15mLtf,
+  aggregate5mTo1hLtf,
+} from '@/data/aggregator';
 import { fetchBinanceKlines } from '@/data/binanceLoader';
 import { fetchVisionDataset, type ProgressInfo } from '@/data/visionLoader';
 import { loadDatasetFromFile, loadDatasetFromUrl } from '@/data/datasetLoader';
@@ -30,7 +35,7 @@ import {
   type TickPref,
 } from '@/data/tickPreference';
 import { loadTfPairId, saveTfPairId } from '@/data/tfPairPreference';
-import { chartTfsForPair } from '@/data/tfPairs';
+import { chartTfsForPair, isSingleTfPair } from '@/data/tfPairs';
 import { candleDurationMs } from '@/engine/scale';
 import {
   computeAutoMultiplier,
@@ -93,8 +98,15 @@ type ZoneAction =
 export default function App() {
   /** Пара «старший → младший» (зоны на старшем, сканер на младшем). */
   const [tfPairId, setTfPairId] = useState<TfPairId>(() => loadTfPairId());
-  /** Какой график сейчас на экране — HTF (зоны) или LTF (входы/footprint). */
-  const [chartView, setChartView] = useState<'htf' | 'ltf'>('htf');
+  /**
+   * Какой график сейчас на экране:
+   *   'htf'    — старший ТФ (только разметка зон),
+   *   'ltf'    — младший ТФ (сканер, маркеры, footprint),
+   *   'single' — один ТФ для всего (зоны + сканер на одной оси, выбрано в TfPairSelector).
+   *
+   * При single-режиме переключатель экрана HTF/LTF скрыт.
+   */
+  const [chartView, setChartView] = useState<'htf' | 'ltf' | 'single'>('htf');
   const [tool, setTool] = useState<Tool>('pointer');
   // Симвoл и tick-настройка читаются из localStorage один раз при инициализации.
   // Дальше вся синхронизация — через onChange-колбэки + useEffect ниже.
@@ -289,21 +301,33 @@ export default function App() {
     saveTickPref(tickPref);
   }, [tickPref]);
 
-  /** Смена пары ТФ: сброс на экран старшего и отчётов сканера (первый маунт пропускаем). */
+  /**
+   * Смена пары ТФ.
+   *
+   * - Двухуровневая пара → возвращаем экран в 'htf' (там разметка).
+   * - Single-пара → ставим chartView = 'single' (один экран на всё).
+   * Также сбрасываем сигналы/сканер, потому что их свечи перестают совпадать
+   * с новой шкалой. На первом маунте (восстановление выбора из localStorage)
+   * сброс пропускаем, чтобы не терять начальные зоны.
+   */
   const tfPairMountRef = useRef(true);
   useEffect(() => {
     if (tfPairMountRef.current) {
       tfPairMountRef.current = false;
+      // На первом маунте только синхронизируем chartView с типом пары —
+      // если пользователь раньше сохранил single-пару, мы должны открыть
+      // экран в режиме 'single', а не 'htf'.
+      setChartView(isSingleTf ? 'single' : 'htf');
       return;
     }
-    setChartView('htf');
+    setChartView(isSingleTf ? 'single' : 'htf');
     setTool('pointer');
     setZoneMenu(null);
     setSignals([]);
     setSelectedSignalId(null);
     setScanner(null);
     requestAnimationFrame(() => viewportApiRef.current?.resetView());
-  }, [tfPairId]);
+  }, [tfPairId, isSingleTf]);
 
   // ============================================================================
   // Очистка предыдущего HTTP-запроса при размонтировании
@@ -336,19 +360,36 @@ export default function App() {
   );
 
   const { htf: htfTf, ltf: ltfTf } = useMemo(() => chartTfsForPair(tfPairId), [tfPairId]);
+  const isSingleTf = useMemo(() => isSingleTfPair(tfPairId), [tfPairId]);
 
   const data15mOhlc = useMemo(() => aggregateTo15m(rawData5m), [rawData5m]);
   const data1hOhlc = useMemo(() => aggregateTo1h(rawData5m), [rawData5m]);
 
-  const ltfData = useMemo(
-    () => (ltfTf === '5m' ? data5m : aggregate5mTo15mLtf(data5m)),
-    [ltfTf, data5m],
-  );
+  /**
+   * LTF-данные для сканера и для экрана «вход».
+   *
+   * - 5m → нативные 5m с кластерами (regrouped).
+   * - 15m → склейка 3×5m с merge кластеров.
+   * - 1h  → склейка 12×5m с merge кластеров (нужно single-режиму '1h-1h',
+   *         чтобы footprint работал на часе).
+   */
+  const ltfData = useMemo(() => {
+    if (ltfTf === '5m') return data5m;
+    if (ltfTf === '15m') return aggregate5mTo15mLtf(data5m);
+    return aggregate5mTo1hLtf(data5m);
+  }, [ltfTf, data5m]);
 
-  const htfData = useMemo(
-    () => (htfTf === '1h' ? data1hOhlc : data15mOhlc),
-    [htfTf, data1hOhlc, data15mOhlc],
-  );
+  /**
+   * HTF-данные для разметки зон.
+   *
+   * В single-режиме HTF == LTF, и нам нужен общий массив с кластерами
+   * (чтобы зоны и сканер работали по одной шкале), поэтому возвращаем `ltfData`.
+   * В двухуровневом режиме HTF — это OHLCV без кластеров (1h или 15m).
+   */
+  const htfData = useMemo(() => {
+    if (isSingleTf) return ltfData;
+    return htfTf === '1h' ? data1hOhlc : data15mOhlc;
+  }, [isSingleTf, ltfData, htfTf, data1hOhlc, data15mOhlc]);
 
   const chartTf: Timeframe = chartView === 'htf' ? htfTf : ltfTf;
   const chartData: readonly (Candle5m | Candle15m | Candle1h)[] =
@@ -563,7 +604,9 @@ export default function App() {
 
   const handleJumpToLTF = useCallback(
     (zone: POIZone) => {
-      setChartView('ltf');
+      // В single-режиме «переходить» некуда — мы и так на нужном ТФ,
+      // просто зумим viewport на зоне. В двухуровневом — переключаем экран.
+      if (!isSingleTf) setChartView('ltf');
       setTool('pointer');
       setZoneMenu(null);
       requestAnimationFrame(() => {
@@ -573,7 +616,7 @@ export default function App() {
         );
       });
     },
-    [ltfPadMs],
+    [isSingleTf, ltfPadMs],
   );
 
   const handleBackToHTF = useCallback(() => {
@@ -593,8 +636,9 @@ export default function App() {
   );
 
   /**
-   * Выбор сигнала. На экране СТ переключаем на МЛ и центрируем viewport на свече.
-   * Если уже на МЛ — только обновляем выбранный id, чтобы не «прыгать» между соседними маркерами.
+   * Выбор сигнала. На экране HTF переключаем на LTF и центрируем viewport на свече.
+   * В single-режиме маркеры и так видны — просто запоминаем выбор без зума,
+   * чтобы не «прыгать» между соседними кликами по соседним сигналам.
    */
   const handleSelectSignal = useCallback(
     (signalId: string) => {
@@ -635,7 +679,8 @@ export default function App() {
       const nextSig = sortedSignals[nextIdx];
       if (!nextSig) return;
       setSelectedSignalId(nextSig.id);
-      if (chartView !== 'ltf') {
+      // В single-режиме мы уже на нужном экране; в двухуровневом — гарантируем LTF.
+      if (!isSingleTf && chartView !== 'ltf') {
         setChartView('ltf');
         setTool('pointer');
       }
@@ -646,7 +691,7 @@ export default function App() {
         );
       });
     },
-    [sortedSignals, selectedSignalId, chartView, signalFocusPadMs],
+    [sortedSignals, selectedSignalId, chartView, isSingleTf, signalFocusPadMs],
   );
 
   const handleClearAll = useCallback(() => {
@@ -831,7 +876,8 @@ export default function App() {
     () => ({
       v: () => setTool('pointer'),
       r: () => {
-        if (chartView === 'htf') setTool('rectangle');
+        // Рисование зон — на экране HTF и в single-режиме (там нет отдельного HTF).
+        if (chartView === 'htf' || chartView === 'single') setTool('rectangle');
       },
       s: () => handleRunScanner(),
       escape: () => {
@@ -922,7 +968,7 @@ export default function App() {
       <main className="relative flex-1 overflow-hidden">
         <Toolbox
           tool={tool}
-          zoneDrawingEnabled={chartView === 'htf'}
+          zoneDrawingEnabled={chartView === 'htf' || chartView === 'single'}
           zonesCount={zones.length}
           hasData={ltfData.length > 0}
           scannerRunning={scannerRunning}
@@ -938,7 +984,7 @@ export default function App() {
         <ChartCanvas
           data={chartData}
           chartTf={chartTf}
-          chartRole={chartView === 'htf' ? 'htf' : 'ltf'}
+          chartRole={chartView}
           ltfChartTf={ltfTf}
           tool={tool}
           zones={zones}
@@ -969,7 +1015,9 @@ export default function App() {
         {/* Переключатель таймфрейма + размер ячейки footprint */}
         {data5m.length > 0 && (
           <div className="absolute right-20 top-2 z-10 flex items-center gap-2">
-            {chartView === 'ltf' && (
+            {/* TickPicker имеет смысл, когда на экране есть кластеры:
+                это LTF в двухуровневом режиме и любой single-режим. */}
+            {(chartView === 'ltf' || chartView === 'single') && (
               <TickPicker
                 pref={tickPref}
                 effective={effectiveMultiplier}
@@ -984,19 +1032,22 @@ export default function App() {
               }}
               disabled={isLoading}
             />
-            <div className="flex gap-1 rounded border border-tv-border bg-tv-panel/95 p-1 shadow-lg">
-              <TfButton active={chartView === 'htf'} onClick={goToHtfView}>
-                HTF
-              </TfButton>
-              <TfButton active={chartView === 'ltf'} onClick={goToLtfView}>
-                LTF
-              </TfButton>
-            </div>
+            {/* Переключатель HTF/LTF нужен только в двухуровневом режиме. */}
+            {!isSingleTf && (
+              <div className="flex gap-1 rounded border border-tv-border bg-tv-panel/95 p-1 shadow-lg">
+                <TfButton active={chartView === 'htf'} onClick={goToHtfView}>
+                  HTF
+                </TfButton>
+                <TfButton active={chartView === 'ltf'} onClick={goToLtfView}>
+                  LTF
+                </TfButton>
+              </div>
+            )}
           </div>
         )}
 
         {/* Подсказка-режим: рисование */}
-        {tool === 'rectangle' && chartView === 'htf' && (
+        {tool === 'rectangle' && (chartView === 'htf' || chartView === 'single') && (
           <div className="pointer-events-none absolute top-4 left-1/2 z-30 -translate-x-1/2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200 backdrop-blur-sm">
             Режим разметки · нажмите и растяните, Esc — отмена
           </div>

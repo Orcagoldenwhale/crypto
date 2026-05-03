@@ -7,8 +7,13 @@ import { SymbolPicker } from './SymbolPicker';
 interface HeaderProps {
   /** Активный слот графика (1h / 15m / 5m). */
   chartTf: Timeframe;
-  /** Режим: старший ТФ (зоны) или младший (входы). */
-  chartView: 'htf' | 'ltf';
+  /**
+   * Режим экрана:
+   *   'htf'    — старший ТФ (зоны),
+   *   'ltf'    — младший ТФ (сканер, маркеры),
+   *   'single' — единый ТФ (зоны + сканер на одной оси).
+   */
+  chartView: 'htf' | 'ltf' | 'single';
   symbol: string;
   onSymbolChange: (id: string) => void;
   isLoading: boolean;
@@ -61,12 +66,16 @@ export function Header({
             title={
               chartView === 'htf'
                 ? 'HTF — разметка зон'
-                : 'LTF — сканер, маркеры и footprint'
+                : chartView === 'ltf'
+                  ? 'LTF — сканер, маркеры и footprint'
+                  : `Single — зоны и сканер на одном ${chartTf}`
             }
           >
             {chartTf}
             <span className="text-tv-text-dim"> · </span>
-            <span className="text-tv-text">{chartView === 'htf' ? 'HTF' : 'LTF'}</span>
+            <span className="text-tv-text">
+              {chartView === 'htf' ? 'HTF' : chartView === 'ltf' ? 'LTF' : 'SINGLE'}
+            </span>
           </span>
         </div>
       </div>

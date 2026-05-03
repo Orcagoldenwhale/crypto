@@ -51,13 +51,20 @@ interface ChartCanvasProps {
   data: readonly (Candle5m | Candle15m | Candle1h)[];
   /** Таймфрейм текущего графика (ось, свечи, hit-test по слоту). */
   chartTf: Timeframe;
-  /** Старший экран (зоны) или младший (сканер, маркеры). */
-  chartRole: 'htf' | 'ltf';
   /**
-   * Младший ТФ пары — для маркеров и подсветки сигналов на экране МЛ.
-   * На экране СТ не используется.
+   * Роль экрана:
+   *   'htf'    — только разметка зон (без footprint и маркеров),
+   *   'ltf'    — сканер: маркеры, footprint, подсветка сигналов,
+   *   'single' — оба поведения одновременно (один таймфрейм на всё).
    */
-  ltfChartTf: '5m' | '15m';
+  chartRole: 'htf' | 'ltf' | 'single';
+  /**
+   * Таймфрейм слота для маркеров сигналов и подсветки.
+   *
+   * Используется на экранах 'ltf' и 'single'. На 'htf' — игнорируется.
+   * 1h допускается для single-режима '1h-1h'.
+   */
+  ltfChartTf: Timeframe;
   tool: Tool;
   zones: readonly POIZone[];
   selectedZoneId: string | null;
@@ -136,21 +143,33 @@ export function ChartCanvas({
   /** Хитбокс кластера под курсором — для подсветки в overlay. */
   const [hoveredCluster, setHoveredCluster] = useState<ClusterHitbox | null>(null);
 
+  /**
+   * Поведение экрана включает «LTF-функции» (маркеры/footprint), если
+   * это либо чистый LTF, либо single-режим (тогда экран один на всё).
+   */
+  const ltfBehaviour = chartRole === 'ltf' || chartRole === 'single';
+
+  /** В данных есть реальные кластеры? Решает, рисовать ли footprint вообще. */
+  const dataHasClusters = useMemo(() => {
+    if (data.length === 0) return false;
+    const first = data[0] as Partial<Candle5m>;
+    return Array.isArray(first.clusters) && first.clusters.length > 0;
+  }, [data]);
+
   // Хитбоксы сигналов — пересчитываются при изменении viewport / signals / metrics.
   const signalHitboxes = useMemo(
     () =>
-      chartRole === 'ltf'
+      ltfBehaviour
         ? computeSignalHitboxes(signals, viewport, metrics, ltfChartTf)
         : [],
-    [chartRole, signals, viewport, metrics, ltfChartTf],
+    [ltfBehaviour, signals, viewport, metrics, ltfChartTf],
   );
 
-  // Хитбоксы кластеров — только на МЛ в footprint-режиме (5m / 15m LTF).
+  // Хитбоксы кластеров — там, где включается footprint и есть кластеры.
   const clusterHitboxes = useMemo<ClusterHitbox[]>(() => {
-    if (chartRole !== 'ltf') return [];
-    if (chartTf === '1h') return [];
+    if (!ltfBehaviour) return [];
+    if (!dataHasClusters) return [];
     if (!shouldRenderFootprint(chartTf, viewport, metrics)) return [];
-    if (data.length === 0) return [];
     const [s, e] = findVisibleRange(data, viewport.timeStart, viewport.timeEnd);
     if (s < 0 || e < 0) return [];
     return computeClusterHitboxes(
@@ -159,9 +178,9 @@ export function ChartCanvas({
       e,
       viewport,
       metrics,
-      chartTf === '5m' ? '5m' : '15m',
+      chartTf,
     );
-  }, [chartRole, data, chartTf, viewport, metrics]);
+  }, [ltfBehaviour, dataHasClusters, data, chartTf, viewport, metrics]);
 
   // Если выбранного / наведённого сигнала больше нет в списке — снять стейт.
   // Это защита от рассинхронизации, например после повторного прогона сканера.
@@ -181,12 +200,12 @@ export function ChartCanvas({
 
   // Свеча, на которой стоит выбранный сигнал — нужна для подсветки.
   const selectedSignalCandle = useMemo<Candle5m | null>(() => {
-    if (!selectedSignalId || chartRole !== 'ltf') return null;
+    if (!selectedSignalId || !ltfBehaviour) return null;
     const sig = signals.find((s) => s.id === selectedSignalId);
     if (!sig) return null;
     const candle = (data as readonly Candle5m[]).find((c) => c.timestamp === sig.candleTime);
     return candle ?? null;
-  }, [selectedSignalId, signals, chartRole, data]);
+  }, [selectedSignalId, signals, ltfBehaviour, data]);
 
   const selectedSignal = useMemo<Signal | null>(() => {
     if (!selectedSignalId) return null;
@@ -194,8 +213,10 @@ export function ChartCanvas({
   }, [selectedSignalId, signals]);
 
   // Drawing-машина для POI
+  /** Рисование зон разрешено там, где есть HTF-поведение. */
+  const htfBehaviour = chartRole === 'htf' || chartRole === 'single';
   const drawing = usePOIDrawing({
-    enabled: tool === 'rectangle' && chartRole === 'htf',
+    enabled: tool === 'rectangle' && htfBehaviour,
     viewport,
     metrics,
     onCreate: onCreateZone,
@@ -263,9 +284,11 @@ export function ChartCanvas({
       const [s, e] = findVisibleRange(data, viewport.timeStart, viewport.timeEnd);
       if (s < 0 || e < 0) return;
 
+      // Footprint доступен там, где экран ведёт себя как LTF (или single)
+      // И в данных есть реальные кластеры (HTF-OHLCV их не несёт).
       const useFootprint =
-        chartRole === 'ltf' &&
-        chartTf !== '1h' &&
+        ltfBehaviour &&
+        dataHasClusters &&
         shouldRenderFootprint(chartTf, viewport, metrics);
 
       if (useFootprint) {
@@ -274,7 +297,7 @@ export function ChartCanvas({
           metrics,
           viewport,
           candles: data as readonly Candle5m[],
-          chartTf: chartTf === '5m' ? '5m' : '15m',
+          chartTf,
           startIdx: s,
           endIdx: e,
         });
@@ -290,12 +313,8 @@ export function ChartCanvas({
         });
       }
 
-      // Подсветка условий выбранного сигнала — только на экране МЛ.
-      if (
-        chartRole === 'ltf' &&
-        selectedSignal &&
-        selectedSignalCandle
-      ) {
+      // Подсветка условий выбранного сигнала — только при LTF-поведении.
+      if (ltfBehaviour && selectedSignal && selectedSignalCandle) {
         renderSignalHighlight({
           ctx,
           metrics,
@@ -306,8 +325,8 @@ export function ChartCanvas({
         });
       }
 
-      // Маркеры сигналов — только на МЛ.
-      if (chartRole === 'ltf' && signals.length > 0) {
+      // Маркеры сигналов — только при LTF-поведении.
+      if (ltfBehaviour && signals.length > 0) {
         renderSignals({
           ctx,
           metrics,
@@ -326,6 +345,8 @@ export function ChartCanvas({
     data,
     chartTf,
     chartRole,
+    ltfBehaviour,
+    dataHasClusters,
     ltfChartTf,
     viewport,
     metrics,
@@ -393,27 +414,24 @@ export function ChartCanvas({
       if (handled) return;
     }
 
-    // pointer + МЛ: приоритет — маркер сигнала
-    if (tool === 'pointer' && chartRole === 'ltf' && signalHitboxes.length > 0) {
-      const sigId = hitTestSignals(signalHitboxes, x, y);
-      if (sigId) {
-        onSelectSignal(sigId);
-        return;
+    if (tool === 'pointer') {
+      // Приоритет 1 — маркер сигнала (только если есть LTF-поведение).
+      if (ltfBehaviour && signalHitboxes.length > 0) {
+        const sigId = hitTestSignals(signalHitboxes, x, y);
+        if (sigId) {
+          onSelectSignal(sigId);
+          return;
+        }
       }
-    }
-
-    // pointer + СТ: клик по зоне
-    if (tool === 'pointer' && chartRole === 'htf') {
-      const hit = hitTestZones(zones, x, y, viewport, metrics);
-      if (hit) {
-        onZoneClick(hit, e.clientX, e.clientY);
-        return;
+      // Приоритет 2 — зона (только если есть HTF-поведение).
+      if (htfBehaviour) {
+        const hit = hitTestZones(zones, x, y, viewport, metrics);
+        if (hit) {
+          onZoneClick(hit, e.clientX, e.clientY);
+          return;
+        }
       }
-      onClickEmpty();
-    }
-
-    // МЛ: клик мимо маркера — снять выбор сигнала (симметрично СТ)
-    if (tool === 'pointer' && chartRole === 'ltf') {
+      // Клик мимо: снять выбор зоны/сигнала.
       onClickEmpty();
     }
 
@@ -431,8 +449,8 @@ export function ChartCanvas({
       drawing.onMouseMove(x, y);
     }
 
-    // Hover по маркерам сигналов — только на МЛ в pointer-режиме.
-    if (tool === 'pointer' && chartRole === 'ltf' && signalHitboxes.length > 0) {
+    // Hover по маркерам — там, где они вообще рисуются (LTF или single).
+    if (tool === 'pointer' && ltfBehaviour && signalHitboxes.length > 0) {
       const sigId = hitTestSignals(signalHitboxes, x, y);
       if (sigId !== hoveredSignalId) setHoveredSignalId(sigId);
     } else if (hoveredSignalId !== null) {

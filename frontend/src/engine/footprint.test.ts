@@ -86,14 +86,26 @@ function makeCandle(opts?: Partial<Candle5m>): Candle5m {
 // ============================================================================
 
 describe('shouldRenderFootprint', () => {
-  it('возвращает false на 1h независимо от ширины', () => {
+  it('решает по ширине слота на 1h: при узких false', () => {
+    // 240 часовых свечей в 1000px → ~4px каждая, ниже порога.
     const vp: Viewport = {
       timeStart: 0,
-      timeEnd: 4 * 60 * 60 * 1000,
+      timeEnd: 240 * 60 * 60 * 1000,
       priceMin: 0,
       priceMax: 100,
     };
     expect(shouldRenderFootprint('1h', vp, M)).toBe(false);
+  });
+
+  it('решает по ширине слота на 1h: при широких true (single-режим 1h-1h)', () => {
+    // 5 часовых свечей в 1000px → 200px каждая, выше FOOTPRINT_MIN_WIDTH_PX.
+    const vp: Viewport = {
+      timeStart: 0,
+      timeEnd: 5 * 60 * 60 * 1000,
+      priceMin: 0,
+      priceMax: 100,
+    };
+    expect(shouldRenderFootprint('1h', vp, M)).toBe(true);
   });
 
   it('возвращает false на 15m при узких свечах', () => {

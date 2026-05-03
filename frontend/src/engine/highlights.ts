@@ -43,8 +43,11 @@ export interface RenderHighlightArgs {
   /** Свеча, на которой стоит сигнал (timestamp == signal.candleTime). */
   candle: Candle5m;
   signal: Signal;
-  /** Младший ТФ отрисовки (5m или 15m LTF). */
-  chartTf: '5m' | '15m';
+  /**
+   * Таймфрейм отрисовки (5m / 15m / 1h).
+   * 1h применяется в single-режиме '1h-1h'.
+   */
+  chartTf: '5m' | '15m' | '1h';
 }
 
 function detectTickSize(clusters: Candle5m['clusters']): number {

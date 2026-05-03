@@ -89,26 +89,28 @@ export interface RenderFootprintArgs {
   metrics: CanvasMetrics;
   viewport: Viewport;
   candles: readonly Candle5m[];
-  /** 5m или 15m LTF — от этого зависит ширина слота и центр свечи по времени. */
-  chartTf: '15m' | '5m';
+  /**
+   * Таймфрейм слота для расчёта ширины свечи и центрирования по времени.
+   * 1h допустим в single-режиме (свечи через aggregate5mTo1hLtf — с кластерами).
+   */
+  chartTf: '1h' | '15m' | '5m';
   startIdx: number;
   endIdx: number;
 }
 
 /**
  * Решает, рисовать ли footprint при текущем zoom.
- * Используется ChartCanvas, чтобы выбрать между classical и footprint.
- */
-/**
- * Footprint включается только на младших ТФ (5m / 15m) с кластерами.
- * 1h — только классические свечи.
+ *
+ * Возвращает true, если ширина слота достаточна для ячеек кластеров.
+ * НЕ проверяет наличие самих кластеров в данных — это делает вызывающая
+ * сторона (ChartCanvas), потому что footprint допустим только когда
+ * свечи реально несут `clusters[]` (5m нативные, 15m/1h LTF-агрегаты).
  */
 export function shouldRenderFootprint(
   chartTf: '1h' | '15m' | '5m',
   vp: Viewport,
   metrics: CanvasMetrics,
 ): boolean {
-  if (chartTf === '1h') return false;
   return candleWidthPx(chartTf, vp, metrics) >= FOOTPRINT_MIN_WIDTH_PX;
 }
 
@@ -149,7 +151,7 @@ export function computeClusterHitboxes(
   endIdx: number,
   vp: Viewport,
   metrics: CanvasMetrics,
-  chartTf: '15m' | '5m',
+  chartTf: '1h' | '15m' | '5m',
 ): ClusterHitbox[] {
   if (startIdx < 0 || endIdx < 0 || startIdx > endIdx) return [];
 
