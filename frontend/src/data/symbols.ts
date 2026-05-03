@@ -45,6 +45,13 @@ export const SYMBOLS: readonly SymbolInfo[] = [
     tickSize: 0.05,
     prebuiltUrl: '/solusdt-5d.json',
   },
+  {
+    id: 'BNBUSDT',
+    short: 'BNB',
+    long: 'BNB',
+    tickSize: 0.1,
+    prebuiltUrl: '/bnbusdt-5d.json',
+  },
 ] as const;
 
 export const DEFAULT_SYMBOL_ID = 'BTCUSDT';
