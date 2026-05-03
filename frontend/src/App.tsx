@@ -99,14 +99,23 @@ export default function App() {
   /** Пара «старший → младший» (зоны на старшем, сканер на младшем). */
   const [tfPairId, setTfPairId] = useState<TfPairId>(() => loadTfPairId());
   /**
+   * `isSingleTf` — вычисляется чистой функцией без useMemo, чтобы быть
+   * доступной во всех useEffect выше блока useMemo с timeframe-данными.
+   * Стоимость вызова — пара сравнений строк.
+   */
+  const isSingleTf = isSingleTfPair(tfPairId);
+  /**
    * Какой график сейчас на экране:
    *   'htf'    — старший ТФ (только разметка зон),
    *   'ltf'    — младший ТФ (сканер, маркеры, footprint),
    *   'single' — один ТФ для всего (зоны + сканер на одной оси, выбрано в TfPairSelector).
    *
    * При single-режиме переключатель экрана HTF/LTF скрыт.
+   * Начальное значение синхронизировано с восстановленной парой ТФ.
    */
-  const [chartView, setChartView] = useState<'htf' | 'ltf' | 'single'>('htf');
+  const [chartView, setChartView] = useState<'htf' | 'ltf' | 'single'>(() =>
+    isSingleTfPair(tfPairId) ? 'single' : 'htf',
+  );
   const [tool, setTool] = useState<Tool>('pointer');
   // Симвoл и tick-настройка читаются из localStorage один раз при инициализации.
   // Дальше вся синхронизация — через onChange-колбэки + useEffect ниже.
@@ -360,7 +369,6 @@ export default function App() {
   );
 
   const { htf: htfTf, ltf: ltfTf } = useMemo(() => chartTfsForPair(tfPairId), [tfPairId]);
-  const isSingleTf = useMemo(() => isSingleTfPair(tfPairId), [tfPairId]);
 
   const data15mOhlc = useMemo(() => aggregateTo15m(rawData5m), [rawData5m]);
   const data1hOhlc = useMemo(() => aggregateTo1h(rawData5m), [rawData5m]);
