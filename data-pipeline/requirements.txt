@@ -1,0 +1,9 @@
+# Runtime-зависимости (для тех, кто ставит без `pip install -e .`).
+# Точные версии те же, что в pyproject.toml.
+pandas>=2.0,<3
+pydantic>=2.5,<3
+requests>=2.31,<3
+pyarrow>=15,<22
+
+# Dev / тесты — ставится отдельно: `pip install -r requirements-dev.txt`
+# (см. requirements-dev.txt)

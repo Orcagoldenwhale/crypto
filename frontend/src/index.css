@@ -1,0 +1,84 @@
+@import 'tailwindcss';
+
+/* ============================================================================
+ * Tailwind v4 — кастомная тема в стиле TradingView.
+ * Переменные доступны как утилиты: bg-tv-bg, text-tv-up, border-tv-border, ...
+ * ============================================================================ */
+@theme {
+  /* Базовая палитра фона / границ */
+  --color-tv-bg: #131722;
+  --color-tv-bg-deep: #0a0e17;
+  --color-tv-panel: #1e222d;
+  --color-tv-panel-hover: #2a2e39;
+  --color-tv-panel-active: #363a45;
+  --color-tv-border: #2a2e39;
+
+  /* Текст */
+  --color-tv-text: #d1d4dc;
+  --color-tv-text-dim: #9ca3af;
+  --color-tv-text-muted: #6b7280;
+
+  /* Свечи и сигналы */
+  --color-tv-up: #089981;
+  --color-tv-up-hover: #078570;
+  --color-tv-down: #f23645;
+  --color-tv-down-hover: #d8324a;
+
+  /* Акценты */
+  --color-tv-accent: #2962ff;
+  --color-tv-accent-hover: #1e53e5;
+
+  /* Imbalance highlights */
+  --color-tv-imbalance-up: #4ade80;
+  --color-tv-imbalance-down: #ff6b6b;
+
+  /* Шрифты */
+  --font-mono: 'JetBrains Mono', 'SF Mono', ui-monospace, Consolas, monospace;
+  --font-sans:
+    'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ============================================================================
+ * Глобальные стили
+ * ============================================================================ */
+:root {
+  color-scheme: dark;
+  font-family: var(--font-sans);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--color-tv-bg);
+  color: var(--color-tv-text);
+  overflow: hidden;
+}
+
+/* Selection */
+::selection {
+  background: rgba(41, 98, 255, 0.3);
+}
+
+/* Scrollbar (для будущих списков) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-tv-bg-deep);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-tv-panel-hover);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-tv-panel-active);
+}

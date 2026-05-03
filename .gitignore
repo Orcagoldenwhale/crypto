@@ -95,6 +95,9 @@ data-pipeline/data/cache/
 data-pipeline/data/processed/
 frontend/public/data/*.json
 !frontend/public/data/.gitkeep
+# Датасеты, выгруженные smc-data (формат <symbol>-<N>d.json) — большие, не коммитим
+frontend/public/*-[0-9]d.json
+frontend/public/*-[0-9][0-9]d.json
 
 # Локальные конфиги
 .env

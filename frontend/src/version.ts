@@ -1,0 +1,23 @@
+/**
+ * Версия приложения — единственный источник правды.
+ *
+ * Поднимать вручную при значимых изменениях. Версия видна в Header и StatusBar
+ * UI, и в console.log при старте — это диагностика «свежий ли фронт у юзера».
+ *
+ * Время сборки приходит из Vite через `define` в `vite.config.ts`.
+ */
+
+export const APP_VERSION = '1.13.0';
+
+/** ISO-8601 timestamp момента запуска dev-сервера (или сборки). */
+export const BUILD_TIME: string =
+  typeof __BUILD_TIME__ === 'string' ? __BUILD_TIME__ : new Date().toISOString();
+
+/** "13:14:55" — короткий формат для отображения в UI. */
+export function buildTimeShort(): string {
+  try {
+    return new Date(BUILD_TIME).toLocaleTimeString('ru-RU', { hour12: false });
+  } catch {
+    return BUILD_TIME;
+  }
+}
