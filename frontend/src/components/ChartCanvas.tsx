@@ -39,6 +39,8 @@ import {
 } from '@/engine/signals';
 import { renderSignalHighlight } from '@/engine/highlights';
 import { hitTestCandle } from '@/engine/hitTest';
+import { renderSmcOverlay } from '@/engine/smc/render';
+import type { SmcOverlay } from '@/engine/smc/types';
 import { useChartViewport } from '@/hooks/useChartViewport';
 import { usePOIDrawing } from '@/hooks/usePOIDrawing';
 import type { Candle5m, Candle15m, Candle1h, POIZone, Signal, Timeframe } from '@/types';
@@ -76,6 +78,12 @@ interface ChartCanvasProps {
   onClickEmpty: () => void;
   /** Клик по маркеру сигнала на LTF → выбираем этот сигнал. */
   onSelectSignal: (signalId: string) => void;
+  /**
+   * SMC-overlay (FVG, ликвидность). Рендерится только при htfBehaviour
+   * (HTF в двухуровневой паре или single-режим). На LTF в двухуровневой
+   * паре игнорируется — там фокус на маркерах сигналов и footprint.
+   */
+  smcOverlay?: SmcOverlay;
   /** Свеча под курсором — для StatusBar (передаём наружу). */
   onHoverCandle?: (candle: Candle5m | Candle15m | Candle1h | null) => void;
   /** Кластер под курсором — для тултипа (рендерится в App). */
@@ -110,6 +118,7 @@ export function ChartCanvas({
   onZoneClick,
   onClickEmpty,
   onSelectSignal,
+  smcOverlay,
   onHoverCandle,
   onHoverCluster,
   onViewportApi,
@@ -313,6 +322,13 @@ export function ChartCanvas({
         });
       }
 
+      // SMC-оверлей (FVG, ликвидность) — только при HTF-поведении.
+      // Рисуем ПОСЛЕ свечей, но ДО маркеров сигналов/подсветки, чтобы
+      // зоны не закрывали интерактивные элементы.
+      if (htfBehaviour && smcOverlay) {
+        renderSmcOverlay({ ctx, metrics, viewport, overlay: smcOverlay });
+      }
+
       // Подсветка условий выбранного сигнала — только при LTF-поведении.
       if (ltfBehaviour && selectedSignal && selectedSignalCandle) {
         renderSignalHighlight({
@@ -357,6 +373,8 @@ export function ChartCanvas({
     selectedSignalId,
     selectedSignal,
     selectedSignalCandle,
+    htfBehaviour,
+    smcOverlay,
   ]);
 
   // ============================================================================

@@ -5,7 +5,11 @@ import {
   Trash2,
   Undo2,
   Redo2,
+  Sparkles,
+  Waves,
+  Settings,
 } from 'lucide-react';
+import type { SmcLayers } from '@/engine/smc/types';
 
 export type Tool = 'pointer' | 'rectangle';
 
@@ -18,6 +22,13 @@ interface ToolboxProps {
   scannerRunning: boolean;
   canUndo: boolean;
   canRedo: boolean;
+  /**
+   * Состояние SMC-слоёв. Если null — индикатор недоступен (например, на LTF
+   * при двухуровневой паре): строка тогглов скрывается.
+   */
+  smcLayers: SmcLayers | null;
+  onToggleSmcLayer?: (layer: keyof SmcLayers) => void;
+  onOpenSmcSettings?: (anchorX: number, anchorY: number) => void;
   onSelectTool: (tool: Tool) => void;
   onRunScanner: () => void;
   onClearAll: () => void;
@@ -33,6 +44,9 @@ export function Toolbox({
   scannerRunning,
   canUndo,
   canRedo,
+  smcLayers,
+  onToggleSmcLayer,
+  onOpenSmcSettings,
   onSelectTool,
   onRunScanner,
   onClearAll,
@@ -115,6 +129,45 @@ export function Toolbox({
       >
         <Trash2 className="h-5 w-5" />
       </ToolButton>
+
+      {/* SMC-индикатор: показываем только там, где он активен (HTF/single). */}
+      {smcLayers && (
+        <>
+          <div className="mx-auto my-1 h-px w-6 bg-tv-border" />
+          <ToolButton
+            title={
+              smcLayers.fvg
+                ? 'FVG: показано (выкл.)'
+                : 'FVG: скрыто (вкл.)'
+            }
+            active={smcLayers.fvg}
+            onClick={() => onToggleSmcLayer?.('fvg')}
+          >
+            <Sparkles className="h-5 w-5" />
+          </ToolButton>
+          <ToolButton
+            title={
+              smcLayers.liquidity
+                ? 'Liquidity: показано (выкл.)'
+                : 'Liquidity: скрыто (вкл.)'
+            }
+            active={smcLayers.liquidity}
+            onClick={() => onToggleSmcLayer?.('liquidity')}
+          >
+            <Waves className="h-5 w-5" />
+          </ToolButton>
+          <ToolButton
+            title="Настройки SMC"
+            onClick={(ev) => {
+              const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+              // Якорим popover к правому краю кнопки + небольшой gap.
+              onOpenSmcSettings?.(r.right + 6, r.top);
+            }}
+          >
+            <Settings className="h-5 w-5" />
+          </ToolButton>
+        </>
+      )}
     </div>
   );
 }
@@ -134,7 +187,7 @@ interface ToolButtonProps {
   success?: boolean;
   danger?: boolean;
   disabled?: boolean;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
   children: React.ReactNode;
 }
 

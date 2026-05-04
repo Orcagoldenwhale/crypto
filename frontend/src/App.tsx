@@ -36,6 +36,15 @@ import {
 } from '@/data/tickPreference';
 import { loadTfPairId, saveTfPairId } from '@/data/tfPairPreference';
 import { chartTfsForPair, isSingleTfPair } from '@/data/tfPairs';
+import {
+  loadSmcLayers,
+  loadSmcOptions,
+  saveSmcLayers,
+  saveSmcOptions,
+} from '@/data/smcPreference';
+import { runSmcAnalysis } from '@/engine/smc';
+import { EMPTY_SMC_OVERLAY, type SmcLayers, type SmcOptions } from '@/engine/smc/types';
+import { SmcSettingsPopover } from '@/components/SmcSettingsPopover';
 import { candleDurationMs } from '@/engine/scale';
 import {
   computeAutoMultiplier,
@@ -143,6 +152,14 @@ export default function App() {
   const [hoveredClusterInfo, setHoveredClusterInfo] = useState<HoveredClusterInfo | null>(
     null,
   );
+  /** SMC: видимость слоёв (FVG / Liquidity) — восстанавливаем из localStorage. */
+  const [smcLayers, setSmcLayers] = useState<SmcLayers>(() => loadSmcLayers());
+  /** SMC: параметры детекторов (lookback, tolerance, hideMitigatedFvg). */
+  const [smcOpts, setSmcOpts] = useState<SmcOptions>(() => loadSmcOptions());
+  /** Координаты «якоря» popover'а настроек SMC; null — закрыт. */
+  const [smcSettingsAnchor, setSmcSettingsAnchor] = useState<
+    { x: number; y: number } | null
+  >(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const viewportApiRef = useRef<ChartViewportApi | null>(null);
@@ -309,6 +326,13 @@ export default function App() {
   useEffect(() => {
     saveTickPref(tickPref);
   }, [tickPref]);
+  // Persistence SMC-настроек.
+  useEffect(() => {
+    saveSmcLayers(smcLayers);
+  }, [smcLayers]);
+  useEffect(() => {
+    saveSmcOptions(smcOpts);
+  }, [smcOpts]);
 
   /**
    * Смена пары ТФ.
@@ -402,6 +426,33 @@ export default function App() {
   const chartTf: Timeframe = chartView === 'htf' ? htfTf : ltfTf;
   const chartData: readonly (Candle5m | Candle15m | Candle1h)[] =
     chartView === 'htf' ? htfData : ltfData;
+
+  /**
+   * Поведение HTF включается на экране HTF (двухуровневая пара) и в single-режиме.
+   * Именно на этих экранах рисуется SMC-индикатор и доступна разметка POI.
+   */
+  const htfBehaviour = chartView === 'htf' || chartView === 'single';
+
+  /**
+   * SMC-overlay — пересчитывается при изменении HTF-данных или настроек.
+   * На LTF в двухуровневой паре всегда возвращаем пустой overlay, чтобы
+   * ChartCanvas просто ничего не рисовал.
+   */
+  const smcOverlay = useMemo(() => {
+    if (!htfBehaviour) return EMPTY_SMC_OVERLAY;
+    if (chartData.length === 0) return EMPTY_SMC_OVERLAY;
+    return runSmcAnalysis(chartData, smcLayers, smcOpts);
+  }, [htfBehaviour, chartData, smcLayers, smcOpts]);
+
+  const handleToggleSmcLayer = useCallback((layer: keyof SmcLayers) => {
+    setSmcLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
+  }, []);
+  const handleOpenSmcSettings = useCallback((x: number, y: number) => {
+    setSmcSettingsAnchor({ x, y });
+  }, []);
+  const handleCloseSmcSettings = useCallback(() => {
+    setSmcSettingsAnchor(null);
+  }, []);
 
   const ltfPadMs = LTF_CONTEXT_CANDLES * candleDurationMs(ltfTf);
   const signalFocusPadMs = SIGNAL_FOCUS_HALF_CANDLES * candleDurationMs(ltfTf);
@@ -976,12 +1027,15 @@ export default function App() {
       <main className="relative flex-1 overflow-hidden">
         <Toolbox
           tool={tool}
-          zoneDrawingEnabled={chartView === 'htf' || chartView === 'single'}
+          zoneDrawingEnabled={htfBehaviour}
           zonesCount={zones.length}
           hasData={ltfData.length > 0}
           scannerRunning={scannerRunning}
           canUndo={canUndo}
           canRedo={canRedo}
+          smcLayers={htfBehaviour ? smcLayers : null}
+          onToggleSmcLayer={handleToggleSmcLayer}
+          onOpenSmcSettings={handleOpenSmcSettings}
           onSelectTool={setTool}
           onRunScanner={handleRunScanner}
           onClearAll={handleClearAll}
@@ -999,6 +1053,7 @@ export default function App() {
           selectedZoneId={selectedZoneId}
           signals={signals}
           selectedSignalId={selectedSignalId}
+          smcOverlay={smcOverlay}
           onCreateZone={handleCreateZone}
           onZoneClick={handleZoneClick}
           onClickEmpty={handleClickEmpty}
@@ -1007,6 +1062,17 @@ export default function App() {
           onHoverCluster={handleHoverCluster}
           onViewportApi={handleViewportApi}
         />
+
+        {/* Popover настроек SMC (открывается из Toolbox по шестерёнке) */}
+        {smcSettingsAnchor && (
+          <SmcSettingsPopover
+            options={smcOpts}
+            onChange={setSmcOpts}
+            onClose={handleCloseSmcSettings}
+            anchorX={smcSettingsAnchor.x}
+            anchorY={smcSettingsAnchor.y}
+          />
+        )}
 
         {/* Контекстное меню зоны */}
         {zoneMenu && activeZone && (
