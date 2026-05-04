@@ -100,6 +100,7 @@ export interface SmcLayers {
   fvg: boolean;
   liquidity: boolean;
   structure: boolean;
+  orderBlocks: boolean;
 }
 
 /** Результат расчёта — ровно то, что отрендерится поверх свечей. */
@@ -107,12 +108,14 @@ export interface SmcOverlay {
   fvgs: readonly FvgZone[];
   liquidity: readonly LiquidityZone[];
   structure: readonly StructureBreak[];
+  orderBlocks: readonly OrderBlockZone[];
 }
 
 export const EMPTY_SMC_OVERLAY: SmcOverlay = Object.freeze({
   fvgs: [],
   liquidity: [],
   structure: [],
+  orderBlocks: [],
 });
 
 export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
@@ -125,6 +128,7 @@ export const DEFAULT_SMC_LAYERS: SmcLayers = Object.freeze({
   fvg: true,
   liquidity: true,
   structure: true,
+  orderBlocks: true,
 });
 
 // ============================================================================
@@ -159,4 +163,40 @@ export interface StructureBreak {
   breakTime: TimestampMs;
   /** Время retest-свечи (касание сломанного уровня) или null, если не было. */
   retestTime: TimestampMs | null;
+}
+
+// ============================================================================
+// Order Blocks
+// ============================================================================
+
+/**
+ * Order Block — зона интереса от «институционалов».
+ *
+ * Определяется как ПОСЛЕДНЯЯ противонаправленная свеча перед импульсом,
+ * который сломал структуру (см. StructureBreak):
+ *   - break↑ → bull OB (последний bearish bar до импульса вверх; теперь это поддержка);
+ *   - break↓ → bear OB (последний bullish bar до импульса вниз; теперь это сопротивление).
+ *
+ * Зона = [low, high] этой свечи. Если между OB и break-свечой есть FVG —
+ * это «strong OB» (флаг hasFvg). Mitigation = первое касание зоны после break.
+ */
+export interface OrderBlockZone {
+  id: SmcZoneId;
+  /** 'bull' = поддержка снизу; 'bear' = сопротивление сверху. */
+  kind: 'bull' | 'bear';
+  /** Время свечи самого OB (левая граница прямоугольника). */
+  startTime: TimestampMs;
+  /**
+   * Правая граница: либо время mitigation-свечи, либо время последней свечи,
+   * пока зона ещё «живая».
+   */
+  endTime: TimestampMs;
+  minPrice: Price;
+  maxPrice: Price;
+  /** Был ли между OB и break-свечой Fair Value Gap — повышает «качество» OB. */
+  hasFvg: boolean;
+  /** true = ещё не отработан (цена не возвращалась внутрь OB). */
+  unmitigated: boolean;
+  /** Тип структурного события, породившего этот OB. */
+  breakKind: 'BOS' | 'CHoCH';
 }

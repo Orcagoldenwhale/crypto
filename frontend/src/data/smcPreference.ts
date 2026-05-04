@@ -64,6 +64,10 @@ export function loadSmcLayers(): SmcLayers {
       typeof obj.structure === 'boolean'
         ? obj.structure
         : DEFAULT_SMC_LAYERS.structure,
+    orderBlocks:
+      typeof obj.orderBlocks === 'boolean'
+        ? obj.orderBlocks
+        : DEFAULT_SMC_LAYERS.orderBlocks,
   };
 }
 

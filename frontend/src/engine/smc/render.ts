@@ -16,6 +16,7 @@ import type { CanvasMetrics, Viewport } from '../scale';
 import type {
   FvgZone,
   LiquidityZone,
+  OrderBlockZone,
   SmcOverlay,
   StructureBreak,
 } from './types';
@@ -47,6 +48,16 @@ const COLORS = {
   chochDown: 'rgba(249, 115, 22, 0.95)', // orange-500
   retest: 'rgba(234, 179, 8, 0.95)', // amber-500
 
+  // Order Blocks — заметнее FVG (плотнее заливка, толще контур).
+  obBullFill: 'rgba(34, 197, 94, 0.16)', // emerald-500
+  obBullStroke: 'rgba(34, 197, 94, 0.85)',
+  obBullFillMit: 'rgba(34, 197, 94, 0.06)',
+  obBullStrokeMit: 'rgba(34, 197, 94, 0.4)',
+  obBearFill: 'rgba(239, 68, 68, 0.16)', // rose-500
+  obBearStroke: 'rgba(239, 68, 68, 0.85)',
+  obBearFillMit: 'rgba(239, 68, 68, 0.06)',
+  obBearStrokeMit: 'rgba(239, 68, 68, 0.4)',
+
   label: 'rgba(229, 231, 235, 0.92)', // gray-200
   labelShadow: 'rgba(15, 23, 42, 0.85)', // slate-900
 } as const;
@@ -71,15 +82,22 @@ export function renderSmcOverlay({
   if (
     overlay.fvgs.length === 0 &&
     overlay.liquidity.length === 0 &&
-    overlay.structure.length === 0
+    overlay.structure.length === 0 &&
+    overlay.orderBlocks.length === 0
   ) {
     return;
   }
 
-  // FVG рисуем первыми — они «зональные», горизонталки ликвидности и линии
-  // структуры должны оказаться поверх и не теряться.
+  // Порядок отрисовки (снизу вверх по визуальной иерархии):
+  //   1. FVG — фоновая заливка;
+  //   2. Order Blocks — основные «зоны интереса» с насыщенной заливкой;
+  //   3. Liquidity — горизонтальные линии поверх зон;
+  //   4. Structure — линии BOS/CHoCH с подписями (самые верхние).
   for (const fvg of overlay.fvgs) {
     drawFvg(ctx, metrics, viewport, fvg);
+  }
+  for (const ob of overlay.orderBlocks) {
+    drawOrderBlock(ctx, metrics, viewport, ob);
   }
   for (const liq of overlay.liquidity) {
     drawLiquidity(ctx, metrics, viewport, liq);
@@ -342,5 +360,79 @@ function drawRetestMark(
   ctx.beginPath();
   ctx.arc(x, y, 3.5, 0, Math.PI * 2);
   ctx.stroke();
+  ctx.restore();
+}
+
+// ============================================================================
+// Order Blocks
+// ============================================================================
+
+function drawOrderBlock(
+  ctx: CanvasRenderingContext2D,
+  metrics: CanvasMetrics,
+  vp: Viewport,
+  ob: OrderBlockZone,
+): void {
+  const x1 = timeToX(ob.startTime, vp, metrics);
+  const x2 = timeToX(ob.endTime, vp, metrics);
+  const y1 = priceToY(ob.maxPrice, vp, metrics);
+  const y2 = priceToY(ob.minPrice, vp, metrics);
+  const x = Math.min(x1, x2);
+  const w = Math.max(1, Math.abs(x2 - x1));
+  const y = Math.min(y1, y2);
+  const h = Math.max(1, Math.abs(y2 - y1));
+
+  if (x + w < 0 || x > metrics.width) return;
+  if (y + h < 0 || y > metrics.height) return;
+
+  const isBull = ob.kind === 'bull';
+  const fill = isBull
+    ? ob.unmitigated ? COLORS.obBullFill : COLORS.obBullFillMit
+    : ob.unmitigated ? COLORS.obBearFill : COLORS.obBearFillMit;
+  const stroke = isBull
+    ? ob.unmitigated ? COLORS.obBullStroke : COLORS.obBullStrokeMit
+    : ob.unmitigated ? COLORS.obBearStroke : COLORS.obBearStrokeMit;
+
+  ctx.save();
+  ctx.fillStyle = fill;
+  ctx.fillRect(x, y, w, h);
+
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = ob.unmitigated ? 1.25 : 1;
+  // Mitigated → штриховка, чтобы зоны зрительно «гасились».
+  if (!ob.unmitigated) ctx.setLineDash([4, 3]);
+  ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Подпись: "OB↑" / "OB↓" + возможный значок "+FVG" если был разрыв в
+  // импульсе (классический «strong OB»).
+  drawObLabel(ctx, x + 4, y, ob, stroke);
+}
+
+function drawObLabel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  yTop: number,
+  ob: OrderBlockZone,
+  color: string,
+): void {
+  const arrow = ob.kind === 'bull' ? '↑' : '↓';
+  const fvgTag = ob.hasFvg ? ' +FVG' : '';
+  const text = `OB${arrow} (${ob.breakKind})${fvgTag}`;
+
+  ctx.save();
+  ctx.font = '10px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  ctx.textBaseline = 'middle';
+  // Подпись рисуем сразу под верхней границей (для bull) или над верхней
+  // границей (для bear) — чтобы не наезжать на середину зоны.
+  const padX = 3;
+  const padY = 2;
+  const w = ctx.measureText(text).width;
+  const labelY = ob.kind === 'bull' ? yTop + 8 : yTop - 8;
+  ctx.fillStyle = COLORS.labelShadow;
+  ctx.fillRect(x - padX, labelY - 6 - padY, w + padX * 2, 12 + padY * 2);
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, labelY);
   ctx.restore();
 }

@@ -8,6 +8,7 @@ import {
   Sparkles,
   Waves,
   Activity,
+  Package,
   Settings,
 } from 'lucide-react';
 import type { SmcLayers } from '@/engine/smc/types';
@@ -167,6 +168,17 @@ export function Toolbox({
             onClick={() => onToggleSmcLayer?.('structure')}
           >
             <Activity className="h-5 w-5" />
+          </ToolButton>
+          <ToolButton
+            title={
+              smcLayers.orderBlocks
+                ? 'Order Blocks: показано (выкл.)'
+                : 'Order Blocks: скрыто (вкл.)'
+            }
+            active={smcLayers.orderBlocks}
+            onClick={() => onToggleSmcLayer?.('orderBlocks')}
+          >
+            <Package className="h-5 w-5" />
           </ToolButton>
           <ToolButton
             title="Настройки SMC"
