@@ -99,17 +99,20 @@ export interface SmcOptions {
 export interface SmcLayers {
   fvg: boolean;
   liquidity: boolean;
+  structure: boolean;
 }
 
 /** Результат расчёта — ровно то, что отрендерится поверх свечей. */
 export interface SmcOverlay {
   fvgs: readonly FvgZone[];
   liquidity: readonly LiquidityZone[];
+  structure: readonly StructureBreak[];
 }
 
 export const EMPTY_SMC_OVERLAY: SmcOverlay = Object.freeze({
   fvgs: [],
   liquidity: [],
+  structure: [],
 });
 
 export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
@@ -121,4 +124,39 @@ export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
 export const DEFAULT_SMC_LAYERS: SmcLayers = Object.freeze({
   fvg: true,
   liquidity: true,
+  structure: true,
 });
+
+// ============================================================================
+// Структурные пробои (CHoCH / BOS) + retest
+// ============================================================================
+
+/**
+ * Событие нарушения рыночной структуры.
+ *
+ *   - BOS (Break of Structure) — продолжение тренда:
+ *       uptrend, close > предыдущего HH → BOS↑;
+ *       downtrend, close < предыдущего LL → BOS↓.
+ *
+ *   - CHoCH (Change of Character) — разворот тренда:
+ *       uptrend, close < последнего HL → CHoCH↓;
+ *       downtrend, close > последнего LH → CHoCH↑.
+ *
+ * Поле `retestTime` — время первой свечи после break, которая коснулась
+ * сломанного уровня (low ≤ level для up-break, high ≥ level для down-break).
+ * null означает, что цена так и не вернулась к уровню до конца данных.
+ */
+export interface StructureBreak {
+  id: SmcZoneId;
+  kind: 'BOS' | 'CHoCH';
+  /** Направление пробоя: 'up' = вверх, 'down' = вниз. */
+  dir: 'up' | 'down';
+  /** Цена swing-уровня, который был сломан close-свечой. */
+  level: Price;
+  /** Время swing-точки (левая граница линии). */
+  levelTime: TimestampMs;
+  /** Время свечи, чей close сломал уровень (правая граница без retest). */
+  breakTime: TimestampMs;
+  /** Время retest-свечи (касание сломанного уровня) или null, если не было. */
+  retestTime: TimestampMs | null;
+}

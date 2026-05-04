@@ -7,6 +7,7 @@ import {
   Redo2,
   Sparkles,
   Waves,
+  Activity,
   Settings,
 } from 'lucide-react';
 import type { SmcLayers } from '@/engine/smc/types';
@@ -155,6 +156,17 @@ export function Toolbox({
             onClick={() => onToggleSmcLayer?.('liquidity')}
           >
             <Waves className="h-5 w-5" />
+          </ToolButton>
+          <ToolButton
+            title={
+              smcLayers.structure
+                ? 'Структура (BOS/CHoCH): показано (выкл.)'
+                : 'Структура (BOS/CHoCH): скрыто (вкл.)'
+            }
+            active={smcLayers.structure}
+            onClick={() => onToggleSmcLayer?.('structure')}
+          >
+            <Activity className="h-5 w-5" />
           </ToolButton>
           <ToolButton
             title="Настройки SMC"

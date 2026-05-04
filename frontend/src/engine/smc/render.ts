@@ -13,7 +13,12 @@
 
 import { priceToY, timeToX } from '../scale';
 import type { CanvasMetrics, Viewport } from '../scale';
-import type { FvgZone, LiquidityZone, SmcOverlay } from './types';
+import type {
+  FvgZone,
+  LiquidityZone,
+  SmcOverlay,
+  StructureBreak,
+} from './types';
 
 // ============================================================================
 // Цвета
@@ -34,6 +39,13 @@ const COLORS = {
   liqHighSwept: 'rgba(244, 114, 182, 0.35)',
   liqLow: 'rgba(56, 189, 248, 0.85)', // sky-400
   liqLowSwept: 'rgba(56, 189, 248, 0.35)',
+
+  // Структура: BOS — насыщенные «трендовые» цвета; CHoCH — контрастные янтарные.
+  bosUp: 'rgba(34, 197, 94, 0.95)', // emerald-500
+  bosDown: 'rgba(239, 68, 68, 0.95)', // rose-500
+  chochUp: 'rgba(250, 204, 21, 0.95)', // yellow-400
+  chochDown: 'rgba(249, 115, 22, 0.95)', // orange-500
+  retest: 'rgba(234, 179, 8, 0.95)', // amber-500
 
   label: 'rgba(229, 231, 235, 0.92)', // gray-200
   labelShadow: 'rgba(15, 23, 42, 0.85)', // slate-900
@@ -56,15 +68,24 @@ export function renderSmcOverlay({
   viewport,
   overlay,
 }: RenderSmcOverlayArgs): void {
-  if (overlay.fvgs.length === 0 && overlay.liquidity.length === 0) return;
+  if (
+    overlay.fvgs.length === 0 &&
+    overlay.liquidity.length === 0 &&
+    overlay.structure.length === 0
+  ) {
+    return;
+  }
 
-  // FVG рисуем первыми — они «зональные», горизонталки ликвидности должны
-  // оказаться поверх и не теряться.
+  // FVG рисуем первыми — они «зональные», горизонталки ликвидности и линии
+  // структуры должны оказаться поверх и не теряться.
   for (const fvg of overlay.fvgs) {
     drawFvg(ctx, metrics, viewport, fvg);
   }
   for (const liq of overlay.liquidity) {
     drawLiquidity(ctx, metrics, viewport, liq);
+  }
+  for (const sb of overlay.structure) {
+    drawStructureBreak(ctx, metrics, viewport, sb);
   }
 }
 
@@ -196,5 +217,130 @@ function drawLiqLabel(
   ctx.fillRect(x - padX, labelY - 6 - padY, w + padX * 2, 12 + padY * 2);
   ctx.fillStyle = COLORS.label;
   ctx.fillText(text, x, labelY);
+  ctx.restore();
+}
+
+// ============================================================================
+// Структура (BOS / CHoCH)
+// ============================================================================
+
+function drawStructureBreak(
+  ctx: CanvasRenderingContext2D,
+  metrics: CanvasMetrics,
+  vp: Viewport,
+  sb: StructureBreak,
+): void {
+  const y = priceToY(sb.level, vp, metrics);
+  if (y < 0 || y > metrics.height) return;
+
+  const xLevel = timeToX(sb.levelTime, vp, metrics);
+  const xBreak = timeToX(sb.breakTime, vp, metrics);
+  const xLeft = Math.max(0, Math.min(xLevel, xBreak));
+  const xRight = Math.min(metrics.width, Math.max(xLevel, xBreak));
+  if (xRight <= xLeft) return;
+
+  const stroke = colorForBreak(sb);
+
+  // Сама линия — сплошная, чуть толще остальных оверлеев, чтобы выделяться.
+  ctx.save();
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.4;
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(xLeft, y + 0.5);
+  ctx.lineTo(xRight, y + 0.5);
+  ctx.stroke();
+
+  // Маленький треугольник-стрелка у break-точки, показывает направление
+  // пробоя — направлен ВВЕРХ для break↑ (значок «преодолели сопротивление»)
+  // и вниз для break↓.
+  drawBreakArrow(ctx, xRight, y, sb.dir, stroke);
+
+  // Подпись "BOS↑" / "CHoCH↓" сразу за break-точкой.
+  drawBreakLabel(ctx, xRight + 8, y, sb);
+
+  // Retest: тонкий пунктир от break-точки до retest-свечи + маркер.
+  if (sb.retestTime !== null) {
+    const xR = timeToX(sb.retestTime, vp, metrics);
+    if (xR > xRight && xR <= metrics.width) {
+      ctx.strokeStyle = COLORS.retest;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(xRight, y + 0.5);
+      ctx.lineTo(xR, y + 0.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      drawRetestMark(ctx, xR, y);
+    }
+  }
+  ctx.restore();
+}
+
+function colorForBreak(sb: StructureBreak): string {
+  if (sb.kind === 'BOS') {
+    return sb.dir === 'up' ? COLORS.bosUp : COLORS.bosDown;
+  }
+  return sb.dir === 'up' ? COLORS.chochUp : COLORS.chochDown;
+}
+
+function drawBreakArrow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  dir: 'up' | 'down',
+  color: string,
+): void {
+  const size = 5;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  if (dir === 'up') {
+    ctx.moveTo(x - size, y);
+    ctx.lineTo(x + size, y);
+    ctx.lineTo(x, y - size);
+  } else {
+    ctx.moveTo(x - size, y);
+    ctx.lineTo(x + size, y);
+    ctx.lineTo(x, y + size);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawBreakLabel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  sb: StructureBreak,
+): void {
+  const arrow = sb.dir === 'up' ? '↑' : '↓';
+  const text = `${sb.kind}${arrow}`;
+
+  ctx.font = '10px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  ctx.textBaseline = 'middle';
+  const padX = 3;
+  const padY = 2;
+  const w = ctx.measureText(text).width;
+  // Подпись над линией для up-break и под линией для down-break — глаз
+  // привычнее ищет текст в этой полусфере.
+  const labelY = sb.dir === 'up' ? y - 8 : y + 8;
+  ctx.fillStyle = COLORS.labelShadow;
+  ctx.fillRect(x - padX, labelY - 6 - padY, w + padX * 2, 12 + padY * 2);
+  ctx.fillStyle = colorForBreak(sb);
+  ctx.fillText(text, x, labelY);
+}
+
+function drawRetestMark(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+): void {
+  // Полый кружок поверх линии — символ «вернулись потрогать».
+  ctx.save();
+  ctx.strokeStyle = COLORS.retest;
+  ctx.lineWidth = 1.25;
+  ctx.beginPath();
+  ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.restore();
 }

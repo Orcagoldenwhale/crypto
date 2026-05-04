@@ -60,6 +60,10 @@ export function loadSmcLayers(): SmcLayers {
       typeof obj.liquidity === 'boolean'
         ? obj.liquidity
         : DEFAULT_SMC_LAYERS.liquidity,
+    structure:
+      typeof obj.structure === 'boolean'
+        ? obj.structure
+        : DEFAULT_SMC_LAYERS.structure,
   };
 }
 
