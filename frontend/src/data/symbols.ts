@@ -53,6 +53,13 @@ export const SYMBOLS: readonly SymbolInfo[] = [
     tickSize: 0.1,
     prebuiltUrl: '/bnbusdt-7d.json',
   },
+  {
+    id: 'TONUSDT',
+    short: 'TON',
+    long: 'Toncoin',
+    tickSize: 0.001,
+    prebuiltUrl: '/tonusdt-7d.json',
+  },
 ] as const;
 
 export const DEFAULT_SYMBOL_ID = 'BTCUSDT';
