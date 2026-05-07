@@ -5,7 +5,8 @@
  * сгенерированный Python-pipeline (см. `data-pipeline/`).
  *
  * При добавлении нового символа:
- *   1) Сгенерировать `<symbol>-5d.json` через `smc-data <SYMBOL> --tick-size <X>`.
+ *   1) Сгенерировать `<symbol>-7d.json` через
+ *      `smc-data <SYMBOL> --days 7 --tick-size <X>`.
  *   2) Положить в `frontend/public/`.
  *   3) Дописать запись сюда — UI подхватит автоматически.
  */
@@ -19,7 +20,7 @@ export interface SymbolInfo {
   long: string;
   /** Tick size в исходной сетке Python-pipeline (USDT). */
   tickSize: number;
-  /** URL предзагруженного 5-дневного датасета (рядом с index.html). */
+  /** URL предзагруженного 7-дневного датасета (рядом с index.html). */
   prebuiltUrl: string;
 }
 
@@ -29,28 +30,28 @@ export const SYMBOLS: readonly SymbolInfo[] = [
     short: 'BTC',
     long: 'Bitcoin',
     tickSize: 5,
-    prebuiltUrl: '/btcusdt-5d.json',
+    prebuiltUrl: '/btcusdt-7d.json',
   },
   {
     id: 'ETHUSDT',
     short: 'ETH',
     long: 'Ethereum',
     tickSize: 0.5,
-    prebuiltUrl: '/ethusdt-5d.json',
+    prebuiltUrl: '/ethusdt-7d.json',
   },
   {
     id: 'SOLUSDT',
     short: 'SOL',
     long: 'Solana',
     tickSize: 0.05,
-    prebuiltUrl: '/solusdt-5d.json',
+    prebuiltUrl: '/solusdt-7d.json',
   },
   {
     id: 'BNBUSDT',
     short: 'BNB',
     long: 'BNB',
     tickSize: 0.1,
-    prebuiltUrl: '/bnbusdt-5d.json',
+    prebuiltUrl: '/bnbusdt-7d.json',
   },
 ] as const;
 

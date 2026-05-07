@@ -470,13 +470,13 @@ export default function App() {
     const ac = new AbortController();
     abortRef.current = ac;
 
-    setStatus({ kind: 'loading', loaded: 0, total: 5, label: 'Запрос Binance Vision…' });
+    setStatus({ kind: 'loading', loaded: 0, total: 7, label: 'Запрос Binance Vision…' });
 
     // 1) Пробуем Vision (настоящие aggTrades с кластерами)
     try {
       const dataset = await fetchVisionDataset({
         symbol,
-        days: 5,
+        days: 7,
         signal: ac.signal,
         onProgress: (info) => {
           setStatus({
@@ -506,7 +506,7 @@ export default function App() {
     try {
       const dataset = await fetchBinanceKlines({
         symbol,
-        days: 5,
+        days: 7,
         signal: ac.signal,
         onProgress: (loaded, total) => {
           setStatus({ kind: 'loading', loaded, total, label: 'Binance klines (без кластеров)' });
