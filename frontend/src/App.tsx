@@ -25,6 +25,10 @@ import { fetchBinanceKlines } from '@/data/binanceLoader';
 import { fetchVisionDataset, type ProgressInfo } from '@/data/visionLoader';
 import { loadDatasetFromFile, loadDatasetFromUrl } from '@/data/datasetLoader';
 import { loadPOIs, savePOIs } from '@/data/storage';
+import {
+  createLiveCandleManager,
+  type LiveCandleManager,
+} from '@/data/liveCandleManager';
 import { dedupeZones } from '@/data/dedupeZones';
 import { findSymbol } from '@/data/symbols';
 import {
@@ -60,6 +64,7 @@ import type {
   Candle5m,
   Candle15m,
   Candle1h,
+  LiveStatus,
   POIZone,
   ScannerReport as ScannerReportData,
   Signal,
@@ -163,6 +168,25 @@ export default function App() {
   >(null);
   /** Открыто ли полное руководство (HelpModal). */
   const [helpOpen, setHelpOpen] = useState(false);
+
+  // ============================================================================
+  // Live-режим (real-time aggTrades с Binance, см. docs/04-live-mode.md)
+  // ============================================================================
+  /** Включён ли real-time стрим прямо сейчас. */
+  const [liveActive, setLiveActive] = useState(false);
+  /** Текущий статус live-машины (для бэйджа в шапке). */
+  const [liveStatus, setLiveStatus] = useState<LiveStatus>('idle');
+  /** Закрытые свечи, пришедшие из live-стрима — добавляются к историческим. */
+  const [liveClosedCandles, setLiveClosedCandles] = useState<Candle5m[]>([]);
+  /** Текущая ещё-не-закрытая свеча (на rightmost краю графика). */
+  const [liveOpenCandle, setLiveOpenCandle] = useState<Candle5m | null>(null);
+  /** Хендл менеджера live (создаём при включении, уничтожаем при выключении). */
+  const liveManagerRef = useRef<LiveCandleManager | null>(null);
+  /**
+   * Запоминаем символ, на котором запустили live, чтобы при смене символа
+   * корректно остановить поток (не подключаемся к старому символу).
+   */
+  const liveSymbolRef = useRef<string | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
   const viewportApiRef = useRef<ChartViewportApi | null>(null);
@@ -384,21 +408,62 @@ export default function App() {
   // equality), поэтому смена символа без переключения tick'а не приводит
   // к лишним аллокациям.
   // ============================================================================
+  /**
+   * Объединение исторических 5m с live-хвостом.
+   *
+   * Алгоритм:
+   *   • из liveClosedCandles берём только те timestamps, которых нет в rawData5m
+   *     (защита от перекрытия при первом подключении: история заходит до
+   *     ~текущего часа, live начинается с актуального тика);
+   *   • currentOpen добавляется как самая правая свеча, если её timestamp
+   *     строго больше всех уже учтённых.
+   *
+   * Когда live выключен — возвращаем тот же массив (referential equality),
+   * никаких накладных расходов в обычном режиме.
+   */
+  const rawData5mWithLive = useMemo<Candle5m[]>(() => {
+    if (!liveActive) return rawData5m;
+    const lastHistoryTs =
+      rawData5m.length > 0 ? rawData5m[rawData5m.length - 1]!.timestamp : -1;
+    const tail: Candle5m[] = [];
+    for (const c of liveClosedCandles) {
+      if (c.timestamp > lastHistoryTs) tail.push(c);
+    }
+    if (
+      liveOpenCandle &&
+      liveOpenCandle.clusters.length > 0 &&
+      liveOpenCandle.timestamp >
+        (tail.length > 0
+          ? tail[tail.length - 1]!.timestamp
+          : lastHistoryTs)
+    ) {
+      tail.push(liveOpenCandle);
+    }
+    if (tail.length === 0) return rawData5m;
+    return rawData5m.concat(tail);
+  }, [liveActive, rawData5m, liveClosedCandles, liveOpenCandle]);
+
   const autoMultiplier: TickMultiplier = useMemo(
-    () => computeAutoMultiplier(rawData5m),
-    [rawData5m],
+    () => computeAutoMultiplier(rawData5mWithLive),
+    [rawData5mWithLive],
   );
   const effectiveMultiplier: TickMultiplier =
     tickPref === 'auto' ? autoMultiplier : tickPref.manual;
   const data5m = useMemo(
-    () => regroupCandles(rawData5m, effectiveMultiplier),
-    [rawData5m, effectiveMultiplier],
+    () => regroupCandles(rawData5mWithLive, effectiveMultiplier),
+    [rawData5mWithLive, effectiveMultiplier],
   );
 
   const { htf: htfTf, ltf: ltfTf } = useMemo(() => chartTfsForPair(tfPairId), [tfPairId]);
 
-  const data15mOhlc = useMemo(() => aggregateTo15m(rawData5m), [rawData5m]);
-  const data1hOhlc = useMemo(() => aggregateTo1h(rawData5m), [rawData5m]);
+  const data15mOhlc = useMemo(
+    () => aggregateTo15m(rawData5mWithLive),
+    [rawData5mWithLive],
+  );
+  const data1hOhlc = useMemo(
+    () => aggregateTo1h(rawData5mWithLive),
+    [rawData5mWithLive],
+  );
 
   /**
    * LTF-данные для сканера и для экрана «вход».
@@ -458,6 +523,79 @@ export default function App() {
   }, []);
   const handleOpenHelp = useCallback(() => setHelpOpen(true), []);
   const handleCloseHelp = useCallback(() => setHelpOpen(false), []);
+
+  // ============================================================================
+  // Live-режим: старт/стоп, авто-остановка при смене символа.
+  //
+  // ВАЖНО: manager не реактивен — это ref. State'ы liveClosedCandles /
+  // liveOpenCandle обновляются через onSnapshot (RAF-throttled).
+  // ============================================================================
+  const stopLiveInternal = useCallback(async () => {
+    const mgr = liveManagerRef.current;
+    if (mgr) {
+      try {
+        await mgr.stop();
+      } catch (e) {
+        console.warn('[live] stop failed', e);
+      }
+      liveManagerRef.current = null;
+    }
+    liveSymbolRef.current = null;
+    setLiveActive(false);
+    setLiveStatus('idle');
+    // closed/open сбрасываем — следующий запуск загрузит свой хвост из IDB.
+    setLiveClosedCandles([]);
+    setLiveOpenCandle(null);
+  }, []);
+
+  const handleToggleLive = useCallback(async () => {
+    if (liveActive) {
+      await stopLiveInternal();
+      return;
+    }
+    const info = findSymbol(symbol);
+    if (!info) return;
+
+    const mgr = createLiveCandleManager({
+      symbol,
+      tickSize: info.tickSize,
+      onStatus: (st) => setLiveStatus(st),
+      onSnapshot: (snap) => {
+        // Шаллоу-копия уже сделана внутри manager.
+        setLiveClosedCandles(snap.closedCandles);
+        setLiveOpenCandle(snap.openCandle);
+      },
+      onCandleClosed: () => {
+        // Триггер пересчёта SMC + сканера произойдёт автоматически через
+        // useMemo по rawData5mWithLive (см. ниже): новая закрытая свеча
+        // меняет ссылку на массив → все зависимости пересчитываются.
+      },
+      onError: (e) => console.warn('[live]', e),
+    });
+    liveManagerRef.current = mgr;
+    liveSymbolRef.current = symbol;
+    setLiveActive(true);
+    try {
+      await mgr.start();
+    } catch (e) {
+      console.warn('[live] start failed', e);
+      await stopLiveInternal();
+    }
+  }, [liveActive, symbol, stopLiveInternal]);
+
+  // Авто-остановка при смене символа: гонять live по старому символу нельзя.
+  useEffect(() => {
+    if (liveSymbolRef.current && liveSymbolRef.current !== symbol) {
+      void stopLiveInternal();
+    }
+  }, [symbol, stopLiveInternal]);
+
+  // Корректное завершение при размонтировании (например, hot-reload).
+  useEffect(() => {
+    return () => {
+      void liveManagerRef.current?.stop();
+    };
+  }, []);
 
   const ltfPadMs = LTF_CONTEXT_CANDLES * candleDurationMs(ltfTf);
   const signalFocusPadMs = SIGNAL_FOCUS_HALF_CANDLES * candleDurationMs(ltfTf);
@@ -1024,6 +1162,9 @@ export default function App() {
         onLoadMock={handleLoadMock}
         onLoadFile={handleLoadFile}
         onBackToHTF={handleBackToHTF}
+        liveStatus={liveStatus}
+        liveActive={liveActive}
+        onToggleLive={handleToggleLive}
       />
 
       {/* Полноэкранный оверлей при drag&drop файла. */}

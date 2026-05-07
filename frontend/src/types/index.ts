@@ -272,3 +272,49 @@ export interface ScannerReport {
   longCount: number;
   shortCount: number;
 }
+
+// ============================================================================
+// Live-режим (real-time через Binance WebSocket)
+// ============================================================================
+
+/**
+ * Один тик из стрима aggTrade.
+ *
+ * Поле `aggTradeId` критично для восстановления пропусков (gap recovery):
+ * после reconnect мы запрашиваем REST `/api/v3/aggTrades?fromId=lastId+1`
+ * и склеиваем недостающие тики обратно в свечу.
+ *
+ * Семантика `isBuyerMaker`:
+ *   true  → агрессивный SELL по рынку (taker ударил в bid → bid +qty),
+ *   false → агрессивный BUY  по рынку (taker ударил в ask → ask +qty).
+ */
+export interface AggTradeTick {
+  /** Unix ms — время сделки на бирже (поле `T` в WS). */
+  timestamp: TimestampMs;
+  /** Цена сделки. */
+  price: Price;
+  /** Объём сделки. */
+  qty: Volume;
+  /** true=рыночная продажа (bid +=), false=рыночная покупка (ask +=). */
+  isBuyerMaker: boolean;
+  /** ID агрегированной сделки (поле `a` в WS) — для дедупликации/восстановления. */
+  aggTradeId: number;
+}
+
+/**
+ * Состояния машины live-режима.
+ *
+ * - idle           — выключен, ничего не происходит.
+ * - connecting     — открываем WebSocket, ещё нет тиков.
+ * - gap-filling    — догоняем пропущенные тики через REST после reconnect / reload.
+ * - live           — стабильно идёт поток.
+ * - reconnecting   — WS отвалился, пытаемся переподключиться.
+ * - error          — фатальная ошибка (например, символ не существует).
+ */
+export type LiveStatus =
+  | 'idle'
+  | 'connecting'
+  | 'gap-filling'
+  | 'live'
+  | 'reconnecting'
+  | 'error';

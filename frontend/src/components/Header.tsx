@@ -1,8 +1,9 @@
 import { useRef } from 'react';
-import { Maximize2, FileText, ArrowLeft, Sparkles, FolderOpen } from 'lucide-react';
-import type { Timeframe } from '@/types';
+import { Maximize2, FileText, ArrowLeft, Sparkles, FolderOpen, Radio } from 'lucide-react';
+import type { LiveStatus, Timeframe } from '@/types';
 import { APP_VERSION, buildTimeShort } from '@/version';
 import { SymbolPicker } from './SymbolPicker';
+import { LiveStatusBadge } from './LiveStatusBadge';
 
 interface HeaderProps {
   /** Активный слот графика (1h / 15m / 5m). */
@@ -21,6 +22,13 @@ interface HeaderProps {
   onLoadMock: () => void;
   onLoadFile: (file: File) => void;
   onBackToHTF: () => void;
+
+  /** Live-режим: текущий статус потока. */
+  liveStatus: LiveStatus;
+  /** true когда живая лента работает (любой статус кроме idle). */
+  liveActive: boolean;
+  /** Тоггл live-режима. */
+  onToggleLive: () => void;
 }
 
 export function Header({
@@ -33,6 +41,9 @@ export function Header({
   onLoadMock,
   onLoadFile,
   onBackToHTF,
+  liveStatus,
+  liveActive,
+  onToggleLive,
 }: HeaderProps) {
   // input type=file держим скрытым и кликаем программно — стандартная техника.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -77,6 +88,7 @@ export function Header({
               {chartView === 'htf' ? 'HTF' : chartView === 'ltf' ? 'LTF' : 'SINGLE'}
             </span>
           </span>
+          <LiveStatusBadge status={liveStatus} />
         </div>
       </div>
 
@@ -94,7 +106,7 @@ export function Header({
         <button
           type="button"
           onClick={onLoadMock}
-          disabled={isLoading}
+          disabled={isLoading || liveActive}
           title="Сгенерировать демо-данные с моделированными кластерами (для проверки footprint)"
           className="flex items-center gap-2 rounded border border-tv-border bg-tv-panel-hover px-3 py-1.5 text-sm font-medium text-tv-text transition-colors hover:bg-tv-panel-active disabled:opacity-50"
         >
@@ -103,8 +115,26 @@ export function Header({
         </button>
         <button
           type="button"
-          onClick={handlePickFile}
+          onClick={onToggleLive}
           disabled={isLoading}
+          title={
+            liveActive
+              ? 'Остановить live-стрим Binance'
+              : 'Подключить live-поток aggTrades с Binance (real-time)'
+          }
+          className={
+            liveActive
+              ? 'flex items-center gap-2 rounded border border-emerald-500 bg-emerald-500/20 px-3 py-1.5 text-sm font-medium text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.45)] transition-colors hover:bg-emerald-500/30 disabled:opacity-50'
+              : 'flex items-center gap-2 rounded border border-tv-border bg-tv-panel-hover px-3 py-1.5 text-sm font-medium text-tv-text transition-colors hover:bg-tv-panel-active disabled:opacity-50'
+          }
+        >
+          <Radio className="h-4 w-4" />
+          {liveActive ? 'Live · stop' : 'Live'}
+        </button>
+        <button
+          type="button"
+          onClick={handlePickFile}
+          disabled={isLoading || liveActive}
           title="Открыть локальный JSON, сгенерированный smc-data (или просто перетащить файл в окно)"
           className="flex items-center gap-2 rounded border border-tv-border bg-tv-panel-hover px-3 py-1.5 text-sm font-medium text-tv-text transition-colors hover:bg-tv-panel-active disabled:opacity-50"
         >
@@ -121,8 +151,8 @@ export function Header({
         <button
           type="button"
           onClick={onLoadHistory}
-          disabled={isLoading}
-          title="Реальные aggTrades с Binance Vision (5 дней)"
+          disabled={isLoading || liveActive}
+          title="Реальные aggTrades с Binance Vision (7 дней)"
           className="flex items-center gap-2 rounded bg-tv-accent px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-tv-accent-hover disabled:opacity-50"
         >
           <FileText className="h-4 w-4" />

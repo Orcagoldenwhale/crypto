@@ -13,10 +13,18 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { Candle5m, POIZone } from '@/types';
 
 const DB_NAME = 'smc-backtester';
-/** v2 добавляет store 'visionDays' для кэша aggTrades-агрегатов. */
-const DB_VERSION = 2;
+/**
+ * Версии:
+ *   v1 — store 'poi'.
+ *   v2 — добавляет store 'visionDays' (кэш aggTrades-агрегатов).
+ *   v3 — добавляет 'liveTail' (закрытые live-свечи) и 'liveMeta'
+ *        (`lastAggTradeId` для gap recovery после reload).
+ */
+const DB_VERSION = 3;
 const STORE_POI = 'poi';
 const STORE_VISION = 'visionDays';
+const STORE_LIVE_TAIL = 'liveTail';
+const STORE_LIVE_META = 'liveMeta';
 
 interface SmcDB extends DBSchema {
   poi: {
@@ -39,6 +47,25 @@ interface SmcDB extends DBSchema {
       cachedAt: number;
     };
   };
+  liveTail: {
+    /** Ключ — символ. Хранит хвост последних закрытых live-свечей. */
+    key: string;
+    value: {
+      symbol: string;
+      candles: Candle5m[];
+      updatedAt: number;
+    };
+  };
+  liveMeta: {
+    /** Ключ — символ. Метаданные для gap-recovery. */
+    key: string;
+    value: {
+      symbol: string;
+      lastAggTradeId: number;
+      lastTimestamp: number;
+      updatedAt: number;
+    };
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<SmcDB>> | null = null;
@@ -52,6 +79,14 @@ function getDB(): Promise<IDBPDatabase<SmcDB>> {
         }
         if (oldVersion < 2 && !db.objectStoreNames.contains(STORE_VISION)) {
           db.createObjectStore(STORE_VISION, { keyPath: 'key' });
+        }
+        if (oldVersion < 3) {
+          if (!db.objectStoreNames.contains(STORE_LIVE_TAIL)) {
+            db.createObjectStore(STORE_LIVE_TAIL, { keyPath: 'symbol' });
+          }
+          if (!db.objectStoreNames.contains(STORE_LIVE_META)) {
+            db.createObjectStore(STORE_LIVE_META, { keyPath: 'symbol' });
+          }
         }
       },
     });
@@ -132,5 +167,91 @@ export async function saveVisionDay(
     });
   } catch (e) {
     console.warn('[storage] saveVisionDay failed:', e);
+  }
+}
+
+// ============================================================================
+// Live tail + meta (для real-time режима, см. docs/04-live-mode.md)
+// ============================================================================
+
+export interface LiveMeta {
+  symbol: string;
+  /** Последний обработанный aggTradeId — для gap-recovery после reload/reconnect. */
+  lastAggTradeId: number;
+  /** Timestamp последнего применённого тика (Unix ms). */
+  lastTimestamp: number;
+}
+
+/** Загрузить хвост live-свечей для символа. */
+export async function loadLiveTail(symbol: string): Promise<Candle5m[]> {
+  try {
+    const db = await getDB();
+    const rec = await db.get(STORE_LIVE_TAIL, symbol);
+    return rec?.candles ?? [];
+  } catch (e) {
+    console.warn('[storage] loadLiveTail failed:', e);
+    return [];
+  }
+}
+
+/**
+ * Сохранить хвост live-свечей.
+ *
+ * Хвост ограничивается 500 свечами (≈ 41 час 5m) — это безопасный буфер
+ * на случай длительного оффлайна, но не раздувает БД.
+ */
+export async function saveLiveTail(symbol: string, candles: Candle5m[]): Promise<void> {
+  try {
+    const trimmed = candles.length > 500 ? candles.slice(-500) : candles;
+    const db = await getDB();
+    await db.put(STORE_LIVE_TAIL, {
+      symbol,
+      candles: trimmed,
+      updatedAt: Date.now(),
+    });
+  } catch (e) {
+    console.warn('[storage] saveLiveTail failed:', e);
+  }
+}
+
+/** Очистить live-хвост для символа (например, по кнопке «Сбросить live»). */
+export async function clearLiveTail(symbol: string): Promise<void> {
+  try {
+    const db = await getDB();
+    await db.delete(STORE_LIVE_TAIL, symbol);
+  } catch (e) {
+    console.warn('[storage] clearLiveTail failed:', e);
+  }
+}
+
+/** Загрузить метаданные live (для gap-recovery после reload). */
+export async function loadLiveMeta(symbol: string): Promise<LiveMeta | null> {
+  try {
+    const db = await getDB();
+    const rec = await db.get(STORE_LIVE_META, symbol);
+    if (!rec) return null;
+    return {
+      symbol: rec.symbol,
+      lastAggTradeId: rec.lastAggTradeId,
+      lastTimestamp: rec.lastTimestamp,
+    };
+  } catch (e) {
+    console.warn('[storage] loadLiveMeta failed:', e);
+    return null;
+  }
+}
+
+/** Сохранить метаданные live. */
+export async function saveLiveMeta(meta: LiveMeta): Promise<void> {
+  try {
+    const db = await getDB();
+    await db.put(STORE_LIVE_META, {
+      symbol: meta.symbol,
+      lastAggTradeId: meta.lastAggTradeId,
+      lastTimestamp: meta.lastTimestamp,
+      updatedAt: Date.now(),
+    });
+  } catch (e) {
+    console.warn('[storage] saveLiveMeta failed:', e);
   }
 }
