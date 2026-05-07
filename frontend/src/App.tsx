@@ -45,6 +45,7 @@ import {
 import { runSmcAnalysis } from '@/engine/smc';
 import { EMPTY_SMC_OVERLAY, type SmcLayers, type SmcOptions } from '@/engine/smc/types';
 import { SmcSettingsPopover } from '@/components/SmcSettingsPopover';
+import { HelpModal } from '@/components/HelpModal';
 import { candleDurationMs } from '@/engine/scale';
 import {
   computeAutoMultiplier,
@@ -160,6 +161,8 @@ export default function App() {
   const [smcSettingsAnchor, setSmcSettingsAnchor] = useState<
     { x: number; y: number } | null
   >(null);
+  /** Открыто ли полное руководство (HelpModal). */
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
   const viewportApiRef = useRef<ChartViewportApi | null>(null);
@@ -453,6 +456,8 @@ export default function App() {
   const handleCloseSmcSettings = useCallback(() => {
     setSmcSettingsAnchor(null);
   }, []);
+  const handleOpenHelp = useCallback(() => setHelpOpen(true), []);
+  const handleCloseHelp = useCallback(() => setHelpOpen(false), []);
 
   const ltfPadMs = LTF_CONTEXT_CANDLES * candleDurationMs(ltfTf);
   const signalFocusPadMs = SIGNAL_FOCUS_HALF_CANDLES * candleDurationMs(ltfTf);
@@ -1036,6 +1041,7 @@ export default function App() {
           smcLayers={htfBehaviour ? smcLayers : null}
           onToggleSmcLayer={handleToggleSmcLayer}
           onOpenSmcSettings={handleOpenSmcSettings}
+          onOpenHelp={handleOpenHelp}
           onSelectTool={setTool}
           onRunScanner={handleRunScanner}
           onClearAll={handleClearAll}
@@ -1069,10 +1075,14 @@ export default function App() {
             options={smcOpts}
             onChange={setSmcOpts}
             onClose={handleCloseSmcSettings}
+            onOpenHelp={handleOpenHelp}
             anchorX={smcSettingsAnchor.x}
             anchorY={smcSettingsAnchor.y}
           />
         )}
+
+        {/* Полное руководство пользователя — большая модалка с TOC */}
+        {helpOpen && <HelpModal onClose={handleCloseHelp} />}
 
         {/* Контекстное меню зоны */}
         {zoneMenu && activeZone && (

@@ -10,6 +10,7 @@ import {
   Activity,
   Package,
   Settings,
+  HelpCircle,
 } from 'lucide-react';
 import type { SmcLayers } from '@/engine/smc/types';
 
@@ -31,6 +32,8 @@ interface ToolboxProps {
   smcLayers: SmcLayers | null;
   onToggleSmcLayer?: (layer: keyof SmcLayers) => void;
   onOpenSmcSettings?: (anchorX: number, anchorY: number) => void;
+  /** Открыть полное руководство (модалку HelpModal). */
+  onOpenHelp?: () => void;
   onSelectTool: (tool: Tool) => void;
   onRunScanner: () => void;
   onClearAll: () => void;
@@ -49,6 +52,7 @@ export function Toolbox({
   smcLayers,
   onToggleSmcLayer,
   onOpenSmcSettings,
+  onOpenHelp,
   onSelectTool,
   onRunScanner,
   onClearAll,
@@ -189,6 +193,16 @@ export function Toolbox({
             }}
           >
             <Settings className="h-5 w-5" />
+          </ToolButton>
+        </>
+      )}
+
+      {/* Полное руководство — всегда внизу панели, отделено разделителем. */}
+      {onOpenHelp && (
+        <>
+          <div className="mx-auto my-1 h-px w-6 bg-tv-border" />
+          <ToolButton title="Полное руководство (?)" onClick={onOpenHelp}>
+            <HelpCircle className="h-5 w-5" />
           </ToolButton>
         </>
       )}

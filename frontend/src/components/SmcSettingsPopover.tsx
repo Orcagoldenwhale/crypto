@@ -25,6 +25,11 @@ interface SmcSettingsPopoverProps {
   options: SmcOptions;
   onChange: (next: SmcOptions) => void;
   onClose: () => void;
+  /**
+   * Открыть полное руководство. Если не передан — ссылка «Открыть инструкцию»
+   * не отображается (Toolbox при этом всё равно показывает свою иконку «?»).
+   */
+  onOpenHelp?: () => void;
   /** @deprecated не используется (модалка центрируется во viewport). */
   anchorX?: number;
   /** @deprecated не используется (модалка центрируется во viewport). */
@@ -48,6 +53,7 @@ export function SmcSettingsPopover({
   options,
   onChange,
   onClose,
+  onOpenHelp,
 }: SmcSettingsPopoverProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -188,6 +194,24 @@ export function SmcSettingsPopover({
           </label>
         ))}
       </div>
+
+      {/* Ссылка на полное руководство — внизу карточки, отделена линией.
+          Дублирует иконку «?» из Toolbox: пользователь, открывший настройки
+          и не нашедший нужный параметр, попадает в подробное описание. */}
+      {onOpenHelp && (
+        <div className="mt-1 border-t border-tv-border pt-2">
+          <button
+            type="button"
+            onClick={() => {
+              onOpenHelp();
+              onClose();
+            }}
+            className="text-[11px] text-tv-accent hover:underline"
+          >
+            Открыть полное руководство →
+          </button>
+        </div>
+      )}
       </div>
     </div>
   );
