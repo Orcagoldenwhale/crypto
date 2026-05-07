@@ -5,8 +5,9 @@
  *   1. lookback (int 2..50)              — окно для swing-points;
  *   2. equalityTolerancePct (% 0..5)     — допуск близости equal-highs/lows
  *      (хранится как доля 0..0.05, отображается как % 0..5);
- *   3. hideMitigated (bool)              — глобально прятать отработанные/снятые
- *      элементы во всех слоях (FVG, OB, Liquidity, Structure).
+ *   3. hideMitigated.{layer} (4 чекбокса) — независимо прятать отработанные
+ *      элементы для FVG, Liquidity, Structure, Order Blocks. Плюс кнопка
+ *      «всё / ничего» для быстрого тоггла одной рукой.
  *
  * Дизайн совместим с тулбоксом: тёмная панелька, мелкий ввод, без анимаций.
  * При закрытии (клик вне / Esc) сохраняем в localStorage через onChange + onClose.
@@ -14,7 +15,7 @@
 
 import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
-import type { SmcOptions } from '@/engine/smc/types';
+import type { SmcHideMitigated, SmcOptions } from '@/engine/smc/types';
 
 interface SmcSettingsPopoverProps {
   options: SmcOptions;
@@ -24,6 +25,19 @@ interface SmcSettingsPopoverProps {
   anchorX: number;
   anchorY: number;
 }
+
+interface HideToggleSpec {
+  key: keyof SmcHideMitigated;
+  label: string;
+  hint: string;
+}
+
+const HIDE_TOGGLES: readonly HideToggleSpec[] = [
+  { key: 'fvg', label: 'FVG', hint: 'отработанные (цена возвращалась)' },
+  { key: 'liquidity', label: 'Liquidity', hint: 'снятые (был sweep)' },
+  { key: 'structure', label: 'Structure', hint: 'BOS/CHoCH с уже состоявшимся retest' },
+  { key: 'orderBlocks', label: 'Order Blocks', hint: 'отработанные (цена касалась OB)' },
+];
 
 export function SmcSettingsPopover({
   options,
@@ -59,10 +73,26 @@ export function SmcSettingsPopover({
     onChange({ ...options, [key]: value });
   };
 
+  const setHideField = (key: keyof SmcHideMitigated, value: boolean) => {
+    onChange({
+      ...options,
+      hideMitigated: { ...options.hideMitigated, [key]: value },
+    });
+  };
+
+  const allChecked = HIDE_TOGGLES.every((t) => options.hideMitigated[t.key]);
+  const someChecked = HIDE_TOGGLES.some((t) => options.hideMitigated[t.key]);
+  const setAll = (v: boolean) => {
+    onChange({
+      ...options,
+      hideMitigated: { fvg: v, liquidity: v, structure: v, orderBlocks: v },
+    });
+  };
+
   return (
     <div
       ref={popoverRef}
-      className="absolute z-50 flex w-64 flex-col gap-3 rounded-md border border-tv-border bg-tv-panel/98 p-3 shadow-2xl backdrop-blur-sm"
+      className="absolute z-50 flex w-72 flex-col gap-3 rounded-md border border-tv-border bg-tv-panel/98 p-3 shadow-2xl backdrop-blur-sm"
       style={{ left: anchorX, top: anchorY }}
       role="dialog"
       aria-label="Настройки SMC"
@@ -116,20 +146,38 @@ export function SmcSettingsPopover({
         />
       </Field>
 
-      <label className="flex cursor-pointer items-start gap-2 text-xs text-tv-text">
-        <input
-          type="checkbox"
-          checked={options.hideMitigated}
-          onChange={(e) => setField('hideMitigated', e.target.checked)}
-          className="mt-0.5 h-3.5 w-3.5 accent-tv-accent"
-        />
-        <span className="flex flex-col gap-0.5">
-          <span>Прятать отработанные зоны</span>
-          <span className="text-[10px] text-tv-text-muted">
-            FVG · OB · Liquidity (sweep) · Structure (retest)
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-medium text-tv-text">
+            Прятать отработанные
           </span>
-        </span>
-      </label>
+          <button
+            type="button"
+            onClick={() => setAll(!allChecked)}
+            className="rounded border border-tv-border px-1.5 py-0.5 text-[10px] text-tv-text-muted hover:text-tv-text"
+            aria-label={allChecked ? 'Снять все' : 'Включить все'}
+          >
+            {allChecked ? 'снять все' : someChecked ? 'все' : 'все'}
+          </button>
+        </div>
+        {HIDE_TOGGLES.map((t) => (
+          <label
+            key={t.key}
+            className="flex cursor-pointer items-start gap-2 text-xs text-tv-text"
+          >
+            <input
+              type="checkbox"
+              checked={options.hideMitigated[t.key]}
+              onChange={(e) => setHideField(t.key, e.target.checked)}
+              className="mt-0.5 h-3.5 w-3.5 accent-tv-accent"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span>{t.label}</span>
+              <span className="text-[10px] text-tv-text-muted">{t.hint}</span>
+            </span>
+          </label>
+        ))}
+      </div>
     </div>
   );
 }

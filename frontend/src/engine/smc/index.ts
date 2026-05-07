@@ -36,42 +36,40 @@ export function runSmcAnalysis(
 
   const hide = options.hideMitigated;
 
-  // FVG: hideMitigated прокидываем в детектор — там зоны фильтруются ещё на
-  // этапе сборки, без лишней постобработки.
+  // FVG: фильтр прокидываем прямо в детектор — он умеет отсеивать mitigated
+  // зоны на этапе сборки, без постобработки.
   const fvgs = layers.fvg
-    ? findFVGs(candles, { hideMitigated: hide })
+    ? findFVGs(candles, { hideMitigated: hide.fvg })
     : [];
 
-  // Liquidity: фильтруем после детекта — детектор сам отдаёт sweep/без sweep.
+  // Liquidity: после детекта прячем уже снятые (sweep случился).
   const liquidityRaw = layers.liquidity
     ? findLiquidityZones(candles, {
         lookback: options.lookback,
         equalityTolerancePct: options.equalityTolerancePct,
       })
     : [];
-  const liquidity = hide
+  const liquidity = hide.liquidity
     ? liquidityRaw.filter((l) => l.sweep === null)
     : liquidityRaw;
 
-  // OB зависит от структуры: если пользователь скрыл structure, но просит
-  // OB — мы всё равно считаем breaks (нужны для алгоритма), просто не
-  // отдаём их в overlay.
+  // OB зависит от структуры: если пользователь скрыл слой structure, но
+  // просит OB — мы всё равно считаем breaks, просто не отдаём их в overlay.
   const needsBreaks = layers.structure || layers.orderBlocks;
   const allBreaks = needsBreaks
     ? detectStructure(candles, { lookback: options.lookback })
     : [];
 
-  // Structure: при включённом hide прячем уже «протестированные» break'и
-  // (retest состоялся — сетап считаем отработанным).
+  // Structure: прячем уже ретестнутые break'и — сетап считаем отработанным.
   const structureRaw = layers.structure ? allBreaks : [];
-  const structure = hide
+  const structure = hide.structure
     ? structureRaw.filter((s) => s.retestTime === null)
     : structureRaw;
 
   const orderBlocksRaw = layers.orderBlocks
     ? detectOrderBlocks(candles, allBreaks)
     : [];
-  const orderBlocks = hide
+  const orderBlocks = hide.orderBlocks
     ? orderBlocksRaw.filter((ob) => ob.unmitigated)
     : orderBlocksRaw;
 

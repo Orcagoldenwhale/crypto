@@ -1,18 +1,26 @@
 /**
  * Сохранение настроек SMC-индикатора в localStorage:
  *   - smc:layers — { fvg, liquidity, structure, orderBlocks: bool }
- *   - smc:opts   — { lookback: number, equalityTolerancePct: number, hideMitigated: bool }
+ *   - smc:opts   — { lookback: number, equalityTolerancePct: number,
+ *                    hideMitigated: { fvg, liquidity, structure, orderBlocks: bool } }
  *
  * Любая ошибка чтения/записи (приватный режим, переполнение и т.п.) не должна
  * валить приложение — поэтому всё обёрнуто в try/catch.
  *
- * Бэкомпат: старое поле `hideMitigatedFvg` (до объединения в общий фильтр)
- * мигрирует в `hideMitigated` при первом чтении.
+ * Бэкомпат двух поколений (поле `hideMitigated` могло быть):
+ *   v1 — `hideMitigatedFvg: boolean` (до глобального фильтра)
+ *        → переносим в `hideMitigated.fvg`, остальные слои false;
+ *   v2 — `hideMitigated: boolean` (общий фильтр для всех слоёв)
+ *        → копируем в `hideMitigated.{fvg, liquidity, structure, orderBlocks}`.
+ *
+ * Поэтому пользователь не теряет свой выбор после апдейта схемы.
  */
 
 import {
+  DEFAULT_HIDE_MITIGATED,
   DEFAULT_SMC_LAYERS,
   DEFAULT_SMC_OPTIONS,
+  type SmcHideMitigated,
   type SmcLayers,
   type SmcOptions,
 } from '@/engine/smc/types';
@@ -85,16 +93,13 @@ export function saveSmcLayers(layers: SmcLayers): void {
 export function loadSmcOptions(): SmcOptions {
   const data = safeParse(safeGet(OPTS_KEY));
   if (!data || typeof data !== 'object') return DEFAULT_SMC_OPTIONS;
-  // Расширенный partial-тип: учитываем как новое поле hideMitigated, так и
-  // legacy hideMitigatedFvg, чтобы пользователи не теряли свой выбор после
-  // апдейта.
-  const obj = data as Partial<SmcOptions> & { hideMitigatedFvg?: unknown };
-  let hideMitigated: boolean = DEFAULT_SMC_OPTIONS.hideMitigated;
-  if (typeof obj.hideMitigated === 'boolean') {
-    hideMitigated = obj.hideMitigated;
-  } else if (typeof obj.hideMitigatedFvg === 'boolean') {
-    hideMitigated = obj.hideMitigatedFvg;
-  }
+  // Расширенный partial-тип: hideMitigated может быть объектом (актуальная
+  // схема), boolean'ом (предыдущая глобальная версия) или вообще отсутствовать.
+  // Плюс legacy поле hideMitigatedFvg из самой первой версии.
+  const obj = data as Omit<Partial<SmcOptions>, 'hideMitigated'> & {
+    hideMitigated?: unknown;
+    hideMitigatedFvg?: unknown;
+  };
   return {
     lookback: clampInt(obj.lookback, 2, 50, DEFAULT_SMC_OPTIONS.lookback),
     equalityTolerancePct: clampNum(
@@ -103,8 +108,45 @@ export function loadSmcOptions(): SmcOptions {
       0.05,
       DEFAULT_SMC_OPTIONS.equalityTolerancePct,
     ),
-    hideMitigated,
+    hideMitigated: parseHideMitigated(obj.hideMitigated, obj.hideMitigatedFvg),
   };
+}
+
+/**
+ * Парсинг `hideMitigated` с учётом всех исторических форматов.
+ * `unknown` на входе — потому что это сырые данные из localStorage.
+ */
+function parseHideMitigated(
+  raw: unknown,
+  legacyFvg: unknown,
+): SmcHideMitigated {
+  if (raw && typeof raw === 'object') {
+    const o = raw as Partial<SmcHideMitigated>;
+    return {
+      fvg: typeof o.fvg === 'boolean' ? o.fvg : DEFAULT_HIDE_MITIGATED.fvg,
+      liquidity:
+        typeof o.liquidity === 'boolean'
+          ? o.liquidity
+          : DEFAULT_HIDE_MITIGATED.liquidity,
+      structure:
+        typeof o.structure === 'boolean'
+          ? o.structure
+          : DEFAULT_HIDE_MITIGATED.structure,
+      orderBlocks:
+        typeof o.orderBlocks === 'boolean'
+          ? o.orderBlocks
+          : DEFAULT_HIDE_MITIGATED.orderBlocks,
+    };
+  }
+  if (typeof raw === 'boolean') {
+    // v2: глобальный флаг → раскопировать на все слои.
+    return { fvg: raw, liquidity: raw, structure: raw, orderBlocks: raw };
+  }
+  if (typeof legacyFvg === 'boolean') {
+    // v1: только FVG.
+    return { ...DEFAULT_HIDE_MITIGATED, fvg: legacyFvg };
+  }
+  return { ...DEFAULT_HIDE_MITIGATED };
 }
 
 export function saveSmcOptions(opts: SmcOptions): void {

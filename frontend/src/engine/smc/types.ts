@@ -87,15 +87,25 @@ export interface SweepEvent {
  * - lookback — окно слева/справа для определения swing-point (по умолчанию 5);
  * - equalityTolerancePct — допустимая разница между equal-highs/lows как доля
  *   от цены (0.0005 = 0.05% — типично для крипты на 15m/1h);
- * - hideMitigated — прятать ли уже отработанные/снятые элементы во ВСЕХ слоях:
- *     FVG (unmitigated=false), Order Blocks (unmitigated=false),
- *     Liquidity (sweep!==null), Structure (retestTime!==null).
- *     Резко чистит график на длинных историях.
+ * - hideMitigated — независимые тогглы по каждому слою. true = прятать уже
+ *   отработанные элементы:
+ *     fvg          → FVG с unmitigated=false (цена возвращалась в зону);
+ *     liquidity    → ловушки со sweep!==null (ликвидность снята);
+ *     structure    → BOS/CHoCH с retestTime!==null (уровень уже ретестнули);
+ *     orderBlocks  → OB с unmitigated=false (цена касалась OB).
+ *   Чистит график на длинных историях, оставляя только «живые» сетапы.
  */
+export interface SmcHideMitigated {
+  fvg: boolean;
+  liquidity: boolean;
+  structure: boolean;
+  orderBlocks: boolean;
+}
+
 export interface SmcOptions {
   lookback: number;
   equalityTolerancePct: number;
-  hideMitigated: boolean;
+  hideMitigated: SmcHideMitigated;
 }
 
 /** Видимость каждого слоя (тогглы из Toolbox). */
@@ -121,10 +131,17 @@ export const EMPTY_SMC_OVERLAY: SmcOverlay = Object.freeze({
   orderBlocks: [],
 });
 
+export const DEFAULT_HIDE_MITIGATED: SmcHideMitigated = Object.freeze({
+  fvg: false,
+  liquidity: false,
+  structure: false,
+  orderBlocks: false,
+});
+
 export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
   lookback: 5,
   equalityTolerancePct: 0.0005,
-  hideMitigated: false,
+  hideMitigated: DEFAULT_HIDE_MITIGATED,
 });
 
 export const DEFAULT_SMC_LAYERS: SmcLayers = Object.freeze({
