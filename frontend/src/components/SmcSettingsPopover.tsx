@@ -5,7 +5,8 @@
  *   1. lookback (int 2..50)              — окно для swing-points;
  *   2. equalityTolerancePct (% 0..5)     — допуск близости equal-highs/lows
  *      (хранится как доля 0..0.05, отображается как % 0..5);
- *   3. hideMitigatedFvg (bool)           — прятать ли отработанные FVG.
+ *   3. hideMitigated (bool)              — глобально прятать отработанные/снятые
+ *      элементы во всех слоях (FVG, OB, Liquidity, Structure).
  *
  * Дизайн совместим с тулбоксом: тёмная панелька, мелкий ввод, без анимаций.
  * При закрытии (клик вне / Esc) сохраняем в localStorage через onChange + onClose.
@@ -115,14 +116,19 @@ export function SmcSettingsPopover({
         />
       </Field>
 
-      <label className="flex cursor-pointer items-center gap-2 text-xs text-tv-text">
+      <label className="flex cursor-pointer items-start gap-2 text-xs text-tv-text">
         <input
           type="checkbox"
-          checked={options.hideMitigatedFvg}
-          onChange={(e) => setField('hideMitigatedFvg', e.target.checked)}
-          className="h-3.5 w-3.5 accent-tv-accent"
+          checked={options.hideMitigated}
+          onChange={(e) => setField('hideMitigated', e.target.checked)}
+          className="mt-0.5 h-3.5 w-3.5 accent-tv-accent"
         />
-        Прятать отработанные FVG
+        <span className="flex flex-col gap-0.5">
+          <span>Прятать отработанные зоны</span>
+          <span className="text-[10px] text-tv-text-muted">
+            FVG · OB · Liquidity (sweep) · Structure (retest)
+          </span>
+        </span>
       </label>
     </div>
   );

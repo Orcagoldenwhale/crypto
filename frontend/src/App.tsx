@@ -154,7 +154,7 @@ export default function App() {
   );
   /** SMC: видимость слоёв (FVG / Liquidity) — восстанавливаем из localStorage. */
   const [smcLayers, setSmcLayers] = useState<SmcLayers>(() => loadSmcLayers());
-  /** SMC: параметры детекторов (lookback, tolerance, hideMitigatedFvg). */
+  /** SMC: параметры детекторов (lookback, tolerance, hideMitigated). */
   const [smcOpts, setSmcOpts] = useState<SmcOptions>(() => loadSmcOptions());
   /** Координаты «якоря» popover'а настроек SMC; null — закрыт. */
   const [smcSettingsAnchor, setSmcSettingsAnchor] = useState<

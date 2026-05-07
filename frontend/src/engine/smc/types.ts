@@ -87,12 +87,15 @@ export interface SweepEvent {
  * - lookback — окно слева/справа для определения swing-point (по умолчанию 5);
  * - equalityTolerancePct — допустимая разница между equal-highs/lows как доля
  *   от цены (0.0005 = 0.05% — типично для крипты на 15m/1h);
- * - hideMitigatedFvg — прятать ли уже отработанные FVG.
+ * - hideMitigated — прятать ли уже отработанные/снятые элементы во ВСЕХ слоях:
+ *     FVG (unmitigated=false), Order Blocks (unmitigated=false),
+ *     Liquidity (sweep!==null), Structure (retestTime!==null).
+ *     Резко чистит график на длинных историях.
  */
 export interface SmcOptions {
   lookback: number;
   equalityTolerancePct: number;
-  hideMitigatedFvg: boolean;
+  hideMitigated: boolean;
 }
 
 /** Видимость каждого слоя (тогглы из Toolbox). */
@@ -121,7 +124,7 @@ export const EMPTY_SMC_OVERLAY: SmcOverlay = Object.freeze({
 export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
   lookback: 5,
   equalityTolerancePct: 0.0005,
-  hideMitigatedFvg: false,
+  hideMitigated: false,
 });
 
 export const DEFAULT_SMC_LAYERS: SmcLayers = Object.freeze({

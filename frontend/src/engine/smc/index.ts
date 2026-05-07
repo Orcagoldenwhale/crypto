@@ -34,16 +34,24 @@ export function runSmcAnalysis(
     return EMPTY_SMC_OVERLAY;
   }
 
+  const hide = options.hideMitigated;
+
+  // FVG: hideMitigated прокидываем в детектор — там зоны фильтруются ещё на
+  // этапе сборки, без лишней постобработки.
   const fvgs = layers.fvg
-    ? findFVGs(candles, { hideMitigated: options.hideMitigatedFvg })
+    ? findFVGs(candles, { hideMitigated: hide })
     : [];
 
-  const liquidity = layers.liquidity
+  // Liquidity: фильтруем после детекта — детектор сам отдаёт sweep/без sweep.
+  const liquidityRaw = layers.liquidity
     ? findLiquidityZones(candles, {
         lookback: options.lookback,
         equalityTolerancePct: options.equalityTolerancePct,
       })
     : [];
+  const liquidity = hide
+    ? liquidityRaw.filter((l) => l.sweep === null)
+    : liquidityRaw;
 
   // OB зависит от структуры: если пользователь скрыл structure, но просит
   // OB — мы всё равно считаем breaks (нужны для алгоритма), просто не
@@ -53,11 +61,19 @@ export function runSmcAnalysis(
     ? detectStructure(candles, { lookback: options.lookback })
     : [];
 
-  const structure = layers.structure ? allBreaks : [];
+  // Structure: при включённом hide прячем уже «протестированные» break'и
+  // (retest состоялся — сетап считаем отработанным).
+  const structureRaw = layers.structure ? allBreaks : [];
+  const structure = hide
+    ? structureRaw.filter((s) => s.retestTime === null)
+    : structureRaw;
 
-  const orderBlocks = layers.orderBlocks
+  const orderBlocksRaw = layers.orderBlocks
     ? detectOrderBlocks(candles, allBreaks)
     : [];
+  const orderBlocks = hide
+    ? orderBlocksRaw.filter((ob) => ob.unmitigated)
+    : orderBlocksRaw;
 
   return { fvgs, liquidity, structure, orderBlocks };
 }

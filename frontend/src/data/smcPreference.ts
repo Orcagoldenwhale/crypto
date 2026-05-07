@@ -1,10 +1,13 @@
 /**
  * Сохранение настроек SMC-индикатора в localStorage:
- *   - smc:layers — { fvg: bool, liquidity: bool }
- *   - smc:opts   — { lookback: number, equalityTolerancePct: number, hideMitigatedFvg: bool }
+ *   - smc:layers — { fvg, liquidity, structure, orderBlocks: bool }
+ *   - smc:opts   — { lookback: number, equalityTolerancePct: number, hideMitigated: bool }
  *
  * Любая ошибка чтения/записи (приватный режим, переполнение и т.п.) не должна
  * валить приложение — поэтому всё обёрнуто в try/catch.
+ *
+ * Бэкомпат: старое поле `hideMitigatedFvg` (до объединения в общий фильтр)
+ * мигрирует в `hideMitigated` при первом чтении.
  */
 
 import {
@@ -82,7 +85,16 @@ export function saveSmcLayers(layers: SmcLayers): void {
 export function loadSmcOptions(): SmcOptions {
   const data = safeParse(safeGet(OPTS_KEY));
   if (!data || typeof data !== 'object') return DEFAULT_SMC_OPTIONS;
-  const obj = data as Partial<SmcOptions>;
+  // Расширенный partial-тип: учитываем как новое поле hideMitigated, так и
+  // legacy hideMitigatedFvg, чтобы пользователи не теряли свой выбор после
+  // апдейта.
+  const obj = data as Partial<SmcOptions> & { hideMitigatedFvg?: unknown };
+  let hideMitigated: boolean = DEFAULT_SMC_OPTIONS.hideMitigated;
+  if (typeof obj.hideMitigated === 'boolean') {
+    hideMitigated = obj.hideMitigated;
+  } else if (typeof obj.hideMitigatedFvg === 'boolean') {
+    hideMitigated = obj.hideMitigatedFvg;
+  }
   return {
     lookback: clampInt(obj.lookback, 2, 50, DEFAULT_SMC_OPTIONS.lookback),
     equalityTolerancePct: clampNum(
@@ -91,10 +103,7 @@ export function loadSmcOptions(): SmcOptions {
       0.05,
       DEFAULT_SMC_OPTIONS.equalityTolerancePct,
     ),
-    hideMitigatedFvg:
-      typeof obj.hideMitigatedFvg === 'boolean'
-        ? obj.hideMitigatedFvg
-        : DEFAULT_SMC_OPTIONS.hideMitigatedFvg,
+    hideMitigated,
   };
 }
 
