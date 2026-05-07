@@ -1,5 +1,5 @@
 /**
- * Минимальная панель настроек SMC-индикатора.
+ * Модальная панель настроек SMC-индикатора (центр экрана).
  *
  * Поля:
  *   1. lookback (int 2..50)              — окно для swing-points;
@@ -9,8 +9,12 @@
  *      элементы для FVG, Liquidity, Structure, Order Blocks. Плюс кнопка
  *      «всё / ничего» для быстрого тоггла одной рукой.
  *
- * Дизайн совместим с тулбоксом: тёмная панелька, мелкий ввод, без анимаций.
- * При закрытии (клик вне / Esc) сохраняем в localStorage через onChange + onClose.
+ * Раньше попап якорился у кнопки-шестерёнки и часто упирался в нижний край
+ * экрана (особенно при коротких viewport). Теперь — центрированная модалка
+ * с лёгким backdrop'ом: всегда видна целиком, ничего не обрезается.
+ *
+ * Закрытие: клик по backdrop / Esc / крестик. anchorX/anchorY оставлены в
+ * пропсах для совместимости с Toolbox, но больше не используются.
  */
 
 import { useEffect, useRef } from 'react';
@@ -21,9 +25,10 @@ interface SmcSettingsPopoverProps {
   options: SmcOptions;
   onChange: (next: SmcOptions) => void;
   onClose: () => void;
-  /** Координаты «якоря» — обычно правый верх кнопки-шестерёнки. */
-  anchorX: number;
-  anchorY: number;
+  /** @deprecated не используется (модалка центрируется во viewport). */
+  anchorX?: number;
+  /** @deprecated не используется (модалка центрируется во viewport). */
+  anchorY?: number;
 }
 
 interface HideToggleSpec {
@@ -43,28 +48,28 @@ export function SmcSettingsPopover({
   options,
   onChange,
   onClose,
-  anchorX,
-  anchorY,
 }: SmcSettingsPopoverProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Esc + клик вне → закрыть. Используем capture-phase, чтобы поведение не
-  // конфликтовало с обработчиками вложенных элементов.
+  // Esc → закрыть. Клик по backdrop ловим прямо на корневом элементе ниже
+  // (см. handleBackdropClick) — так не нужно отслеживать глобальный mousedown
+  // и нет риска ложных закрытий из-за вложенных порталов.
   useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      const node = popoverRef.current;
-      if (node && !node.contains(e.target as Node)) onClose();
-    };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
-    window.addEventListener('mousedown', onDocClick, true);
     window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('mousedown', onDocClick, true);
-      window.removeEventListener('keydown', onKey);
-    };
+    return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  /**
+   * Закрытие по клику в backdrop. Реагируем ТОЛЬКО если клик пришёлся на
+   * сам backdrop — иначе любой клик по контенту карточки закрывал бы её
+   * (event.target всплывает наверх).
+   */
+  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) onClose();
+  };
 
   const setField = <K extends keyof SmcOptions>(
     key: K,
@@ -91,12 +96,17 @@ export function SmcSettingsPopover({
 
   return (
     <div
-      ref={popoverRef}
-      className="absolute z-50 flex w-72 flex-col gap-3 rounded-md border border-tv-border bg-tv-panel/98 p-3 shadow-2xl backdrop-blur-sm"
-      style={{ left: anchorX, top: anchorY }}
-      role="dialog"
-      aria-label="Настройки SMC"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+      onMouseDown={handleBackdropClick}
+      role="presentation"
     >
+      <div
+        ref={popoverRef}
+        className="flex max-h-[90vh] w-80 flex-col gap-3 overflow-y-auto rounded-md border border-tv-border bg-tv-panel/98 p-4 shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Настройки SMC"
+      >
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold uppercase tracking-wider text-tv-text">
           Настройки SMC
@@ -177,6 +187,7 @@ export function SmcSettingsPopover({
             </span>
           </label>
         ))}
+      </div>
       </div>
     </div>
   );
