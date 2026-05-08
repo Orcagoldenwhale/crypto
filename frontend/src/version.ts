@@ -7,7 +7,7 @@
  * Время сборки приходит из Vite через `define` в `vite.config.ts`.
  */
 
-export const APP_VERSION = '1.17.7';
+export const APP_VERSION = '1.17.8';
 
 /** ISO-8601 timestamp момента запуска dev-сервера (или сборки). */
 export const BUILD_TIME: string =
@@ -20,4 +20,16 @@ export function buildTimeShort(): string {
   } catch {
     return BUILD_TIME;
   }
+}
+
+// HMR: при любом изменении этого файла принудительный full-reload браузера.
+//
+// Зачем: Vite пытается hot-replace `APP_VERSION` (это const), но React-
+// компоненты не подписаны на изменение этого экспорта и не перерисовываются.
+// В UI остаётся старая версия. `invalidate()` форсит браузер сделать
+// полный reload — пользователь сразу видит новую версию + время сборки.
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    import.meta.hot!.invalidate();
+  });
 }
