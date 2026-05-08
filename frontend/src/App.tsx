@@ -616,21 +616,18 @@ export default function App() {
           : `Live: догнали ${prefetched.length} × 5m: ${fmt(firstTs)} → ${fmt(lastTs)} (${ageMinutes} мин назад). Footprint пустой — оживает с каждой закрывающейся live-свечой.`,
       });
       // КРИТИЧНО: между prebuilt-датасетом (например 7 дней назад) и
-      // 24ч-prefetched может быть большой gap по времени. resetView()
-      // растянет viewport на весь min..max диапазон → 24-часовой хвост
-      // сожмётся в тонкую полоску справа. Поэтому делаем zoom именно
-      // на последние 24ч + 5 мин буфера справа (=1 свеча в будущем).
-      // Раньше тут было +1ч, и пользователь видел огромное пустое
-      // пространство справа от последней свечи.
+      // 24ч-prefetched большой gap по времени. resetView() растянет
+      // viewport на весь min..max → 24ч-хвост сожмётся в полоску.
+      // Поэтому делаем zoom строго на последние 24ч + 5мин буфера.
+      //
+      // Auto-fit в useChartViewport теперь не дёргается при добавлении
+      // свечей справа (см. фикс ключа useChartViewport.ts), поэтому
+      // достаточно одного RAF — дождаться, чтобы React применил
+      // setRawData5m и chart перерисовался с новыми candles.
       const focusStart = prefetched[0]!.timestamp;
       const focusEnd = Date.now() + 5 * 60 * 1000;
-      // Двойной RAF: сначала React применит setRawData5m, затем
-      // viewport hook увидит новые candles, и только после этого
-      // zoomToTimeRange получит корректные timestamps для шкалы.
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          viewportApiRef.current?.zoomToTimeRange(focusStart, focusEnd);
-        });
+        viewportApiRef.current?.zoomToTimeRange(focusStart, focusEnd);
       });
     } else {
       setStatus({

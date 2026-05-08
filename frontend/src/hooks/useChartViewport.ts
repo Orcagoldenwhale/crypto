@@ -56,6 +56,15 @@ export function useChartViewport({
   const candleMs = useMemo(() => candleDurationMs(timeframe), [timeframe]);
 
   // ---- Инициализация / ресет при смене данных или таймфрейма ----
+  //
+  // Ключ намеренно НЕ включает `last.timestamp` и `candles.length`.
+  // Раньше включал — и в Live-режиме каждый новый тик/новая свеча
+  // меняли ключ, авто-fit гнал viewport на «последние 100 свечей»
+  // и затирал ручной `zoomToTimeRange` (например, фокус на 24ч после
+  // prefetch). Теперь авто-fit срабатывает только при смене таймфрейма
+  // ИЛИ при принципиально новом наборе данных (другой `first.timestamp`,
+  // например при смене символа / загрузке нового dataset). Доращивание
+  // справа (live, mergeRaw5mWithLive) уже не дёргает viewport.
   const lastFitKey = useRef<string>('');
   useEffect(() => {
     if (candles.length === 0) return;
@@ -63,7 +72,7 @@ export function useChartViewport({
     const last = candles[candles.length - 1];
     if (!first || !last) return;
 
-    const key = `${timeframe}:${first.timestamp}:${last.timestamp}:${candles.length}`;
+    const key = `${timeframe}:${first.timestamp}`;
     if (key === lastFitKey.current) return;
     lastFitKey.current = key;
 
