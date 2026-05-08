@@ -29,6 +29,7 @@ import {
   createLiveCandleManager,
   type LiveCandleManager,
 } from '@/data/liveCandleManager';
+import { mergeRaw5mWithLive } from '@/data/liveHistoryMerge';
 import { dedupeZones } from '@/data/dedupeZones';
 import { findSymbol } from '@/data/symbols';
 import {
@@ -411,36 +412,18 @@ export default function App() {
   /**
    * Объединение исторических 5m с live-хвостом.
    *
-   * Алгоритм:
-   *   • из liveClosedCandles берём только те timestamps, которых нет в rawData5m
-   *     (защита от перекрытия при первом подключении: история заходит до
-   *     ~текущего часа, live начинается с актуального тика);
-   *   • currentOpen добавляется как самая правая свеча, если её timestamp
-   *     строго больше всех уже учтённых.
+   * Делегируем чистой функции `mergeRaw5mWithLive` — там же все edge-cases:
+   *   • при `c.timestamp === lastHistoryTs` ЗАМЕНЯЕМ последнюю свечу
+   *     (раньше тут было `>`, из-за чего цена «замирала», когда история
+   *     заканчивалась тем же 5m-слотом, что и open-свеча live);
+   *   • при `c.timestamp > lastHistoryTs` дописываем;
+   *   • устаревший хвост из IDB (`<`) тихо игнорируется.
    *
-   * Когда live выключен — возвращаем тот же массив (referential equality),
-   * никаких накладных расходов в обычном режиме.
+   * Когда live выключен — возвращаем тот же массив (referential equality).
    */
   const rawData5mWithLive = useMemo<Candle5m[]>(() => {
     if (!liveActive) return rawData5m;
-    const lastHistoryTs =
-      rawData5m.length > 0 ? rawData5m[rawData5m.length - 1]!.timestamp : -1;
-    const tail: Candle5m[] = [];
-    for (const c of liveClosedCandles) {
-      if (c.timestamp > lastHistoryTs) tail.push(c);
-    }
-    if (
-      liveOpenCandle &&
-      liveOpenCandle.clusters.length > 0 &&
-      liveOpenCandle.timestamp >
-        (tail.length > 0
-          ? tail[tail.length - 1]!.timestamp
-          : lastHistoryTs)
-    ) {
-      tail.push(liveOpenCandle);
-    }
-    if (tail.length === 0) return rawData5m;
-    return rawData5m.concat(tail);
+    return mergeRaw5mWithLive(rawData5m, liveClosedCandles, liveOpenCandle);
   }, [liveActive, rawData5m, liveClosedCandles, liveOpenCandle]);
 
   const autoMultiplier: TickMultiplier = useMemo(
