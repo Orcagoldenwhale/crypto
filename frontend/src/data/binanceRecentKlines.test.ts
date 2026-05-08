@@ -80,11 +80,36 @@ describe('fetchRecentKlines5m', () => {
     expect(result[0]?.timestamp).toBeLessThan(slot);
   });
 
-  it('HTTP-ошибка пробрасывает Error', async () => {
+  it('HTTP-ошибка пробрасывает Error c msg из тела', async () => {
     const fetchImpl: typeof fetch = (async () =>
-      ({ ok: false, status: 429 }) as Response) as typeof fetch;
+      ({
+        ok: false,
+        status: 429,
+        json: async () => ({ code: -1003, msg: 'Too many requests' }),
+      }) as unknown as Response) as typeof fetch;
     await expect(
       fetchRecentKlines5m({ symbol: 'X', fetchImpl }),
-    ).rejects.toThrow(/429/);
+    ).rejects.toThrow(/429.*Too many requests/);
+  });
+
+  it('Binance error JSON {code,msg} вместо массива → понятная ошибка', async () => {
+    const fetchImpl: typeof fetch = (async () =>
+      ({
+        ok: true,
+        status: 200,
+        json: async () => ({ code: -1121, msg: 'Invalid symbol.' }),
+      }) as unknown as Response) as typeof fetch;
+    await expect(
+      fetchRecentKlines5m({ symbol: 'BAD', fetchImpl }),
+    ).rejects.toThrow(/Invalid symbol/);
+  });
+
+  it('сетевая ошибка fetch (CORS / DNS) → понятная ошибка', async () => {
+    const fetchImpl: typeof fetch = (async () => {
+      throw new TypeError('Failed to fetch');
+    }) as typeof fetch;
+    await expect(
+      fetchRecentKlines5m({ symbol: 'X', fetchImpl }),
+    ).rejects.toThrow(/network error.*Failed to fetch/);
   });
 });

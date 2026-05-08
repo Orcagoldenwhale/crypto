@@ -542,40 +542,82 @@ export default function App() {
 
     setLiveActive(true);
     setLiveStatus('connecting');
+    setStatus({
+      kind: 'loading',
+      loaded: 0,
+      total: 1,
+      label: `Live: догоняем последние 24ч ${info.short}/USDT…`,
+    });
 
-    // 1. Pre-load свежей klines-истории за последние 24 часа.
-    //    Это закрывает гэп между prebuilt-датасетом (может быть в прошлых
-    //    днях) и моментом старта WS. Свечи без кластеров — footprint на
-    //    них не работает, но цена и общая дельта точные. Каждый close 5m
-    //    из live-стрима потом перепишет соответствующую klines-свечу
-    //    через mergeRaw5mWithLive (правило `==` → замена).
+    // ========================================================================
+    // 1. Pre-load свежей истории за последние 24 часа (REST klines).
+    //
+    // Зачем: prebuilt-датасет может быть «вчерашним», и без догона
+    // пользователь увидит огромный gap справа и одну живую свечу.
+    // Делаем максимально надёжно:
+    //   • основной путь — лёгкий /api/v3/klines limit=288;
+    //   • если он вернул 0 свечей или упал → fallback на полнокровный
+    //     fetchBinanceKlines days=1 (тот же эндпоинт, но через
+    //     существующий loader с retry'ями и Zod-валидацией);
+    //   • если оба упали → стартуем WS «как есть», предупреждение
+    //     пользователю в StatusBar.
+    // ========================================================================
+    let prefetched: Candle5m[] = [];
+    let prefetchErr: string | null = null;
     try {
-      const recent = await fetchRecentKlines5m({ symbol, limit: 288 });
-      if (recent.length > 0) {
-        // Дописываем klines поверх текущей истории. Используем тот же
-        // helper, что и для live: совпадающие timestamps → замена,
-        // более свежие → дописываем.
-        setRawData5m((prev) => mergeRaw5mWithLive(prev, recent, null));
-      }
+      prefetched = await fetchRecentKlines5m({ symbol, limit: 288 });
     } catch (e) {
-      // REST 429 / DNS / CORS — не фатально, просто стартуем без догона.
-      console.warn('[live] recent klines fetch failed, starting WS anyway:', e);
+      prefetchErr = (e as Error).message ?? String(e);
+      console.warn('[live] recent klines failed, will try fallback:', e);
     }
 
+    if (prefetched.length === 0) {
+      // Fallback: тяжёлый loader с retry'ями и валидацией.
+      try {
+        const ds = await fetchBinanceKlines({ symbol, days: 1 });
+        prefetched = ds.candles;
+      } catch (e) {
+        const msg = (e as Error).message ?? String(e);
+        console.warn('[live] fallback klines also failed:', e);
+        prefetchErr = prefetchErr ? `${prefetchErr}; fallback: ${msg}` : msg;
+      }
+    }
+
+    if (prefetched.length > 0) {
+      // Сливаем klines поверх текущей истории. Совпадающие timestamps
+      // заменяются (правило `==` в mergeRaw5mWithLive), более свежие
+      // дописываются справа.
+      setRawData5m((prev) => mergeRaw5mWithLive(prev, prefetched, null));
+      setStatus({
+        kind: 'success',
+        source: 'klines',
+        message: `Live: догнали ${prefetched.length} × 5m свечей за 24ч (${info.short}/USDT). Footprint на них пустой — оживает с каждой закрывающейся live-свечой.`,
+      });
+      // ResetView чтобы график перерисовался с новой шкалой —
+      // иначе viewport может остаться в старом окне и показывать
+      // только маленький хвост свечей справа.
+      requestAnimationFrame(() => viewportApiRef.current?.resetView());
+    } else {
+      setStatus({
+        kind: 'error',
+        message: `Live: не удалось догнать историю${prefetchErr ? ` (${prefetchErr})` : ''}. WebSocket стартует, свечи будут появляться с текущего момента.`,
+      });
+    }
+
+    // ========================================================================
     // 2. Создаём менеджер и подключаем WebSocket.
+    // ========================================================================
     const mgr = createLiveCandleManager({
       symbol,
       tickSize: info.tickSize,
       onStatus: (st) => setLiveStatus(st),
       onSnapshot: (snap) => {
-        // Шаллоу-копия уже сделана внутри manager.
         setLiveClosedCandles(snap.closedCandles);
         setLiveOpenCandle(snap.openCandle);
       },
       onCandleClosed: () => {
         // Триггер пересчёта SMC + сканера произойдёт автоматически через
-        // useMemo по rawData5mWithLive (см. ниже): новая закрытая свеча
-        // меняет ссылку на массив → все зависимости пересчитываются.
+        // useMemo по rawData5mWithLive (см. ниже).
       },
       onError: (e) => console.warn('[live]', e),
     });
@@ -585,6 +627,10 @@ export default function App() {
       await mgr.start();
     } catch (e) {
       console.warn('[live] start failed', e);
+      setStatus({
+        kind: 'error',
+        message: `Live: не удалось подключить WebSocket (${(e as Error).message ?? 'unknown'}).`,
+      });
       await stopLiveInternal();
     }
   }, [liveActive, symbol, stopLiveInternal]);

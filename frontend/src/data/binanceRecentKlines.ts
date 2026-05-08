@@ -50,11 +50,46 @@ export async function fetchRecentKlines5m(
   const url = `${BINANCE_REST}?symbol=${encodeURIComponent(opts.symbol)}&interval=5m&limit=${limit}`;
 
   const requestInit: RequestInit = opts.signal ? { signal: opts.signal } : {};
-  const resp = await fetchImpl(url, requestInit);
-  if (!resp.ok) {
-    throw new Error(`klines HTTP ${resp.status}`);
+  let resp: Response;
+  try {
+    resp = await fetchImpl(url, requestInit);
+  } catch (e) {
+    // TypeError: Failed to fetch / NetworkError / CORS — оборачиваем в
+    // понятное сообщение с пометкой что это сетевая проблема.
+    const msg = (e as Error).message ?? String(e);
+    throw new Error(`klines network error: ${msg}`);
   }
-  const raw = (await resp.json()) as unknown;
+  if (!resp.ok) {
+    // 429/418/451/418 — пробуем достать тело для диагностики.
+    let detail = '';
+    try {
+      const body = (await resp.json()) as unknown;
+      if (body && typeof body === 'object' && 'msg' in body) {
+        detail = ` (${(body as { msg: unknown }).msg})`;
+      }
+    } catch {
+      /* body не JSON, ничего */
+    }
+    throw new Error(`klines HTTP ${resp.status}${detail}`);
+  }
+
+  let raw: unknown;
+  try {
+    raw = await resp.json();
+  } catch (e) {
+    throw new Error(`klines bad JSON: ${(e as Error).message ?? 'parse failed'}`);
+  }
+
+  // Binance возвращает ОБЪЕКТ {code:-1121, msg:"Invalid symbol"} вместо массива
+  // при ошибке валидации параметров. До этой проверки оно тихо превращалось
+  // в [] через parseKlinesArray — пользователь не видел причину.
+  if (raw && typeof raw === 'object' && !Array.isArray(raw) && 'msg' in raw) {
+    const errObj = raw as { msg?: unknown; code?: unknown };
+    throw new Error(
+      `klines error: ${String(errObj.msg)}${errObj.code ? ` (code ${String(errObj.code)})` : ''}`,
+    );
+  }
+
   const candles = parseKlinesArray(raw);
 
   if (opts.excludeOpen !== false) {
