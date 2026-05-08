@@ -53,6 +53,22 @@ export interface LiveCandleManagerOptions {
   /** Логгер ошибок. */
   onError?: ((e: unknown) => void) | undefined;
 
+  /**
+   * Минимальный интервал между emit'ами snapshot'а open-свечи (мс).
+   *
+   * Зачем: на штормовом потоке (50–200 тиков/с) RAF триггерится 60 раз/сек,
+   * каждый emit → пересчёт ВСЕХ агрегаций (15m, 1h, ltf-merge) и SMC-overlay.
+   * На паре `1h-15m` это десятки тысяч операций × 60 раз/сек = главный поток
+   * забит, переключение TF подвисает.
+   *
+   * 250 мс = 4 Гц — глаз видит «живую» цену, нагрузка падает в 15 раз.
+   * **Закрытие 5m свечи** игнорирует throttle: оно редкое (раз в 5 мин)
+   * и должно мгновенно триггерить пересчёт SMC/сканера.
+   *
+   * Default: 250.
+   */
+  snapshotIntervalMs?: number | undefined;
+
   // ===== DI для тестов =====
   socketCtor?: LiveSocketCtor | undefined;
   fetchImpl?: typeof fetch | undefined;
@@ -84,6 +100,8 @@ export function createLiveCandleManager(
         setTimeout(cb, 16);
       }
     });
+  const now = opts.now ?? (() => Date.now());
+  const snapshotIntervalMs = opts.snapshotIntervalMs ?? 250;
 
   // ===== Внутреннее состояние =====
   let status: LiveStatus = 'idle';
@@ -96,6 +114,11 @@ export function createLiveCandleManager(
   // Bookkeeping persistence
   let dirty = false;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  // ===== Throttle snapshot'ов =====
+  // Время последнего emit'а snapshot — для дросселирования.
+  let lastEmitAt = 0;
+  // Флаг отложенного emit'а на конец окна throttle.
+  let throttleTimer: ReturnType<typeof setTimeout> | null = null;
   // WS-стрим (создаётся в start(), уничтожается в stop()).
   let stream: BinanceLiveStream | null = null;
   // Состояние gap-recovery: если идёт догон, новые тики из WS буферим, чтобы
@@ -120,12 +143,45 @@ export function createLiveCandleManager(
     return { closedCandles: closed.slice(), openCandle };
   }
 
-  function emitSnapshot(): void {
+  function doEmit(): void {
+    lastEmitAt = now();
+    if (throttleTimer) {
+      clearTimeout(throttleTimer);
+      throttleTimer = null;
+    }
     try {
       opts.onSnapshot(getSnapshot());
     } catch (e) {
       onError(e);
     }
+  }
+
+  /**
+   * Эмитит snapshot с учётом throttle.
+   *
+   * Принципы:
+   *  • `force=true` (close 5m, gap-fill page, manual flush) — игнорирует
+   *    throttle, эмитит немедленно.
+   *  • Если с прошлого emit прошло ≥ snapshotIntervalMs — эмитим сразу.
+   *  • Иначе планируем trailing emit на конец окна (если ещё не запланирован),
+   *    чтобы последняя цена не «застряла» в ожидании следующего тика.
+   */
+  function emitSnapshot(force = false): void {
+    if (force || snapshotIntervalMs <= 0) {
+      doEmit();
+      return;
+    }
+    const elapsed = now() - lastEmitAt;
+    if (elapsed >= snapshotIntervalMs) {
+      doEmit();
+      return;
+    }
+    if (throttleTimer) return;
+    const wait = snapshotIntervalMs - elapsed;
+    throttleTimer = setTimeout(() => {
+      throttleTimer = null;
+      if (!stopped) doEmit();
+    }, wait);
   }
 
   function scheduleSave(): void {
@@ -151,12 +207,16 @@ export function createLiveCandleManager(
   /**
    * Обработать один тик: дедуп → определить слот → close+open при пересечении
    * границы → applyTick → пометить dirty.
+   *
+   * Возвращает `true`, если случилось закрытие 5m свечи — вызывающий код
+   * использует это для форсированного emit'а (минуя throttle).
    */
-  function processTick(tick: AggTradeTick): void {
+  function processTick(tick: AggTradeTick): boolean {
     // Дедуп: aggTradeId монотонно растёт. Защищаемся от overlap WS+gap-fill.
-    if (tick.aggTradeId <= lastAggTradeId) return;
+    if (tick.aggTradeId <= lastAggTradeId) return false;
 
     const slotStart = bucketTimestamp5m(tick.timestamp);
+    let closedSlot = false;
 
     if (!openCandle) {
       openCandle = openNewCandle(tick.timestamp);
@@ -168,6 +228,7 @@ export function createLiveCandleManager(
       const finalised = finalizeCandle(openCandle);
       if (finalised.clusters.length > 0) {
         closed.push(finalised);
+        closedSlot = true;
         try {
           opts.onCandleClosed(finalised);
         } catch (e) {
@@ -180,6 +241,7 @@ export function createLiveCandleManager(
     openCandle = applyTickToCandle(openCandle, tick, opts.tickSize);
     lastAggTradeId = tick.aggTradeId;
     dirty = true;
+    return closedSlot;
   }
 
   function flushPending(): void {
@@ -188,9 +250,12 @@ export function createLiveCandleManager(
       return;
     }
     const batch = pending.splice(0, pending.length);
-    for (const t of batch) processTick(t);
+    let hadClose = false;
+    for (const t of batch) {
+      if (processTick(t)) hadClose = true;
+    }
     rafScheduled = false;
-    emitSnapshot();
+    emitSnapshot(hadClose);
     scheduleSave();
   }
 
@@ -223,17 +288,30 @@ export function createLiveCandleManager(
         fetchImpl: opts.fetchImpl,
         onError,
         onPage: (ticks) => {
-          for (const t of ticks) processTick(t);
-          emitSnapshot();
-          scheduleSave();
+          let hadClose = false;
+          for (const t of ticks) {
+            if (processTick(t)) hadClose = true;
+          }
+          // Страницы gap-fill редкие — форсим emit, чтобы пользователь сразу
+          // увидел догнанные свечи.
+          emitSnapshot(true);
+          if (hadClose) {
+            // Запись хвоста после закрытий — критично для persistence.
+            scheduleSave();
+          } else {
+            scheduleSave();
+          }
         },
       });
     } finally {
       // Сливаем накопленный буфер тиков, пришедших во время догона.
       if (gapBuffer.length > 0) {
         const flush = gapBuffer.splice(0, gapBuffer.length);
-        for (const t of flush) processTick(t);
-        emitSnapshot();
+        let hadClose = false;
+        for (const t of flush) {
+          if (processTick(t)) hadClose = true;
+        }
+        emitSnapshot(hadClose);
         scheduleSave();
       }
       gapInProgress = false;
@@ -256,7 +334,8 @@ export function createLiveCandleManager(
       } catch (e) {
         onError(e);
       }
-      emitSnapshot();
+      // Первый emit — форсим, чтобы UI сразу увидел восстановленный хвост.
+      emitSnapshot(true);
 
       // 2. Создать WS-стрим.
       stream = createBinanceLiveStream({
@@ -291,6 +370,10 @@ export function createLiveCandleManager(
       if (saveTimer) {
         clearTimeout(saveTimer);
         saveTimer = null;
+      }
+      if (throttleTimer) {
+        clearTimeout(throttleTimer);
+        throttleTimer = null;
       }
       // Финальная запись хвоста.
       try {

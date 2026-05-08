@@ -30,6 +30,7 @@ import {
   type LiveCandleManager,
 } from '@/data/liveCandleManager';
 import { mergeRaw5mWithLive } from '@/data/liveHistoryMerge';
+import { fetchRecentKlines5m } from '@/data/binanceRecentKlines';
 import { dedupeZones } from '@/data/dedupeZones';
 import { findSymbol } from '@/data/symbols';
 import {
@@ -539,6 +540,29 @@ export default function App() {
     const info = findSymbol(symbol);
     if (!info) return;
 
+    setLiveActive(true);
+    setLiveStatus('connecting');
+
+    // 1. Pre-load свежей klines-истории за последние 24 часа.
+    //    Это закрывает гэп между prebuilt-датасетом (может быть в прошлых
+    //    днях) и моментом старта WS. Свечи без кластеров — footprint на
+    //    них не работает, но цена и общая дельта точные. Каждый close 5m
+    //    из live-стрима потом перепишет соответствующую klines-свечу
+    //    через mergeRaw5mWithLive (правило `==` → замена).
+    try {
+      const recent = await fetchRecentKlines5m({ symbol, limit: 288 });
+      if (recent.length > 0) {
+        // Дописываем klines поверх текущей истории. Используем тот же
+        // helper, что и для live: совпадающие timestamps → замена,
+        // более свежие → дописываем.
+        setRawData5m((prev) => mergeRaw5mWithLive(prev, recent, null));
+      }
+    } catch (e) {
+      // REST 429 / DNS / CORS — не фатально, просто стартуем без догона.
+      console.warn('[live] recent klines fetch failed, starting WS anyway:', e);
+    }
+
+    // 2. Создаём менеджер и подключаем WebSocket.
     const mgr = createLiveCandleManager({
       symbol,
       tickSize: info.tickSize,
@@ -557,7 +581,6 @@ export default function App() {
     });
     liveManagerRef.current = mgr;
     liveSymbolRef.current = symbol;
-    setLiveActive(true);
     try {
       await mgr.start();
     } catch (e) {
