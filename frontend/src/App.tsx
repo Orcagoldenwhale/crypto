@@ -588,10 +588,32 @@ export default function App() {
       // заменяются (правило `==` в mergeRaw5mWithLive), более свежие
       // дописываются справа.
       setRawData5m((prev) => mergeRaw5mWithLive(prev, prefetched, null));
+
+      // Диагностика: timestamps первой и последней свечи + «свежесть»
+      // последней. Если ageMinutes > 30 — Binance отдал устаревшие
+      // данные (часы / регион / API), переключаем плашку в красный.
+      const firstTs = prefetched[0]!.timestamp;
+      const lastTs = prefetched[prefetched.length - 1]!.timestamp;
+      const ageMinutes = Math.round((Date.now() - lastTs) / 60_000);
+      const fmt = (ts: number) =>
+        new Date(ts).toLocaleTimeString('ru-RU', { hour12: false });
+      const stale = ageMinutes > 30;
+
+      console.info('[live] prefetched klines', {
+        symbol,
+        count: prefetched.length,
+        firstTs: new Date(firstTs).toISOString(),
+        lastTs: new Date(lastTs).toISOString(),
+        ageMinutes,
+        nowLocal: new Date().toISOString(),
+      });
+
       setStatus({
-        kind: 'success',
+        kind: stale ? 'error' : 'success',
         source: 'klines',
-        message: `Live: догнали ${prefetched.length} × 5m свечей за 24ч (${info.short}/USDT). Footprint на них пустой — оживает с каждой закрывающейся live-свечой.`,
+        message: stale
+          ? `Live: Binance отдал устаревшие свечи! ${prefetched.length} шт., последняя — ${fmt(lastTs)} (${ageMinutes} мин назад). Проверь системные часы и регион.`
+          : `Live: догнали ${prefetched.length} × 5m: ${fmt(firstTs)} → ${fmt(lastTs)} (${ageMinutes} мин назад). Footprint пустой — оживает с каждой закрывающейся live-свечой.`,
       });
       // КРИТИЧНО: между prebuilt-датасетом (например 7 дней назад) и
       // 24ч-prefetched может быть большой gap по времени. resetView()
