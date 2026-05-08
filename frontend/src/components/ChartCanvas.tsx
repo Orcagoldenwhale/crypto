@@ -158,11 +158,24 @@ export function ChartCanvas({
    */
   const ltfBehaviour = chartRole === 'ltf' || chartRole === 'single';
 
-  /** В данных есть реальные кластеры? Решает, рисовать ли footprint вообще. */
+  /**
+   * В данных есть хоть одна свеча с реальными кластерами?
+   *
+   * Идём с конца массива до первого hit'а: live-open и закрытые live-свечи
+   * (которые НЕСУТ кластеры) обычно находятся в последних позициях. В типичном
+   * use-case это O(1).
+   *
+   * Раньше тут проверялась только `data[0]` — и если массив начинался с REST-
+   * prefetched klines (24ч без кластеров), footprint никогда не включался,
+   * даже когда живые свечи с кластерами уже накопились в хвосте. Это ломало
+   * LTF/Single для пользователей, включавших Live без prebuilt-истории.
+   */
   const dataHasClusters = useMemo(() => {
-    if (data.length === 0) return false;
-    const first = data[0] as Partial<Candle5m>;
-    return Array.isArray(first.clusters) && first.clusters.length > 0;
+    for (let i = data.length - 1; i >= 0; i--) {
+      const c = data[i] as Partial<Candle5m>;
+      if (Array.isArray(c.clusters) && c.clusters.length > 0) return true;
+    }
+    return false;
   }, [data]);
 
   // Хитбоксы сигналов — пересчитываются при изменении viewport / signals / metrics.
