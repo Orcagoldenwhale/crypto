@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeRaw5mWithLive } from './liveHistoryMerge';
+import { mergeRaw5mWithLive, mergeRaw5mWithKlines } from './liveHistoryMerge';
 import type { Candle5m } from '@/types';
 
 function emptyCandle(ts: number, close: number): Candle5m {
@@ -68,5 +68,50 @@ describe('mergeRaw5mWithLive', () => {
     const merged = mergeRaw5mWithLive(hist, closed, null);
     expect(merged).toHaveLength(1);
     expect(merged[0]?.close).toBe(77);
+  });
+});
+
+describe('mergeRaw5mWithKlines', () => {
+  it('пустые klines → возвращает history reference', () => {
+    const h: Candle5m[] = [candle(1000, 10)];
+    expect(mergeRaw5mWithKlines(h, [])).toBe(h);
+  });
+
+  it('пустая history → возвращает копию klines (отсортированную)', () => {
+    const klines = [emptyCandle(2000, 20), emptyCandle(1000, 10)];
+    const merged = mergeRaw5mWithKlines([], klines);
+    expect(merged.map((c) => c.timestamp)).toEqual([1000, 2000]);
+  });
+
+  it('klines БЕЗ кластеров не выбрасываются (главное отличие от mergeRaw5mWithLive)', () => {
+    const hist: Candle5m[] = [];
+    const klines = [emptyCandle(1000, 10), emptyCandle(2000, 20)];
+    const merged = mergeRaw5mWithKlines(hist, klines);
+    expect(merged).toHaveLength(2);
+    expect(merged.every((c) => c.clusters.length === 0)).toBe(true);
+  });
+
+  it('непересекающиеся timestamps — обе стороны сохраняются, ASC', () => {
+    const hist = [candle(1000, 10), candle(2000, 20)]; // c кластерами
+    const klines = [emptyCandle(3000, 30), emptyCandle(4000, 40)]; // без кластеров
+    const merged = mergeRaw5mWithKlines(hist, klines);
+    expect(merged.map((c) => c.timestamp)).toEqual([1000, 2000, 3000, 4000]);
+  });
+
+  it('пересекающиеся timestamps — history побеждает (сохраняем кластеры)', () => {
+    const hist = [candle(1000, 10), candle(2000, 20)];
+    const klines = [emptyCandle(2000, 999), emptyCandle(3000, 30)];
+    const merged = mergeRaw5mWithKlines(hist, klines);
+    expect(merged).toHaveLength(3);
+    const at2000 = merged.find((c) => c.timestamp === 2000)!;
+    expect(at2000.close).toBe(20);
+    expect(at2000.clusters.length).toBe(1);
+  });
+
+  it('результат всегда отсортирован по timestamp ASC', () => {
+    const hist = [candle(5000, 5), candle(1000, 1)]; // намеренно не отсортирован
+    const klines = [emptyCandle(3000, 3), emptyCandle(2000, 2)];
+    const merged = mergeRaw5mWithKlines(hist, klines);
+    expect(merged.map((c) => c.timestamp)).toEqual([1000, 2000, 3000, 5000]);
   });
 });

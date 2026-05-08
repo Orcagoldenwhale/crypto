@@ -1,10 +1,20 @@
 /**
- * Склеивание исторических 5m с live-хвостом.
+ * Склеивание исторических 5m с live-хвостом и REST-klines.
  *
- * Типичный кейс: prebuilt JSON заканчивается на том же 5m-слоте, что и «сейчас»
- * (или последняя закрытая свеча совпадает с открытой live по timestamp).
- * Тогда нельзя требовать строго `liveTs > lastHistoryTs` — иначе live никогда
- * не попадёт в массив и цена «замрёт».
+ * Здесь две разные функции с разной семантикой:
+ *
+ *   • `mergeRaw5mWithLive` — для WS-live-данных. Отбрасывает свечи без
+ *     кластеров (пустой open-candle до первого тика, пустые промежуточные
+ *     состояния), чтобы они не затирали историю с реальными кластерами.
+ *
+ *   • `mergeRaw5mWithKlines` — для REST `/klines` prefetch (последние 24ч).
+ *     Эти свечи ВСЕГДА без кластеров (footprint REST не отдаёт), и фильтр
+ *     по `clusters.length === 0` для них губителен — он выбрасывает все 287
+ *     prefetched-свечей, оставляя на графике только prebuilt-историю
+ *     7-дневной давности и одинокую live-свечу справа.
+ *
+ *     Логика: дедуп по `timestamp`, history побеждает (у неё кластеры
+ *     prebuilt-датасета — терять их нельзя), сортировка ASC.
  */
 
 import type { Candle5m } from '@/types';
@@ -37,4 +47,29 @@ export function mergeRaw5mWithLive(
   if (liveOpen) apply(liveOpen);
 
   return out;
+}
+
+/**
+ * Склеить prebuilt/исторические 5m-свечи с REST-klines (последние 24ч).
+ *
+ * Контракт:
+ *  • Обе стороны могут быть пусты.
+ *  • На совпадающих timestamp — побеждает `history` (потому что у неё уже
+ *    есть кластеры prebuilt-датасета; klines их не отдаёт).
+ *  • Результат отсортирован по timestamp ASC.
+ *  • Свечи без кластеров НЕ отбрасываются — это и есть основной use-case.
+ */
+export function mergeRaw5mWithKlines(
+  history: readonly Candle5m[],
+  klines: readonly Candle5m[],
+): Candle5m[] {
+  if (klines.length === 0) return history as Candle5m[];
+
+  const map = new Map<number, Candle5m>();
+  for (const c of klines) map.set(c.timestamp, c);
+  for (const c of history) map.set(c.timestamp, c);
+
+  const merged = Array.from(map.values());
+  merged.sort((a, b) => a.timestamp - b.timestamp);
+  return merged;
 }

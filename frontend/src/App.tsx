@@ -29,7 +29,7 @@ import {
   createLiveCandleManager,
   type LiveCandleManager,
 } from '@/data/liveCandleManager';
-import { mergeRaw5mWithLive } from '@/data/liveHistoryMerge';
+import { mergeRaw5mWithLive, mergeRaw5mWithKlines } from '@/data/liveHistoryMerge';
 import { fetchRecentKlines5m } from '@/data/binanceRecentKlines';
 import { dedupeZones } from '@/data/dedupeZones';
 import { findSymbol } from '@/data/symbols';
@@ -584,10 +584,12 @@ export default function App() {
     }
 
     if (prefetched.length > 0) {
-      // Сливаем klines поверх текущей истории. Совпадающие timestamps
-      // заменяются (правило `==` в mergeRaw5mWithLive), более свежие
-      // дописываются справа.
-      setRawData5m((prev) => mergeRaw5mWithLive(prev, prefetched, null));
+      // Сливаем klines поверх текущей истории. Используем
+      // mergeRaw5mWithKlines (НЕ mergeRaw5mWithLive!) — последняя
+      // фильтрует свечи без кластеров, а у klines кластеров нет.
+      // На совпадающих timestamp побеждает history (у неё есть
+      // кластеры prebuilt-датасета).
+      setRawData5m((prev) => mergeRaw5mWithKlines(prev, prefetched));
 
       // Диагностика: timestamps первой и последней свечи + «свежесть»
       // последней. Если ageMinutes > 30 — Binance отдал устаревшие
