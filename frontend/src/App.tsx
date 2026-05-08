@@ -593,10 +593,21 @@ export default function App() {
         source: 'klines',
         message: `Live: догнали ${prefetched.length} × 5m свечей за 24ч (${info.short}/USDT). Footprint на них пустой — оживает с каждой закрывающейся live-свечой.`,
       });
-      // ResetView чтобы график перерисовался с новой шкалой —
-      // иначе viewport может остаться в старом окне и показывать
-      // только маленький хвост свечей справа.
-      requestAnimationFrame(() => viewportApiRef.current?.resetView());
+      // КРИТИЧНО: между prebuilt-датасетом (например 7 дней назад) и
+      // 24ч-prefetched может быть большой gap по времени. resetView()
+      // растянет viewport на весь min..max диапазон → 24-часовой хвост
+      // сожмётся в тонкую полоску справа. Поэтому делаем zoom именно
+      // на последние 24ч + 1ч буфера для будущих live-свечей.
+      const focusStart = prefetched[0]!.timestamp;
+      const focusEnd = Date.now() + 60 * 60 * 1000;
+      // Двойной RAF: сначала React применит setRawData5m, затем
+      // viewport hook увидит новые candles, и только после этого
+      // zoomToTimeRange получит корректные timestamps для шкалы.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          viewportApiRef.current?.zoomToTimeRange(focusStart, focusEnd);
+        });
+      });
     } else {
       setStatus({
         kind: 'error',
