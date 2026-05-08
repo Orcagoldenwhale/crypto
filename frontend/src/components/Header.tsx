@@ -1,6 +1,7 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Maximize2, FileText, ArrowLeft, Sparkles, FolderOpen, Radio } from 'lucide-react';
 import type { LiveStatus, Timeframe } from '@/types';
+import type { LiveDebugStats } from '@/data/liveCandleManager';
 import { APP_VERSION, buildTimeShort } from '@/version';
 import { SymbolPicker } from './SymbolPicker';
 import { LiveStatusBadge } from './LiveStatusBadge';
@@ -27,6 +28,8 @@ interface HeaderProps {
   liveStatus: LiveStatus;
   /** true когда живая лента работает (любой статус кроме idle). */
   liveActive: boolean;
+  /** Диагностика live-стрима в реальном времени (тики/снапшоты/последний тик). */
+  liveStats: LiveDebugStats | null;
   /** Тоггл live-режима. */
   onToggleLive: () => void;
 }
@@ -43,10 +46,20 @@ export function Header({
   onBackToHTF,
   liveStatus,
   liveActive,
+  liveStats,
   onToggleLive,
 }: HeaderProps) {
   // input type=file держим скрытым и кликаем программно — стандартная техника.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Тикающая «секунда назад» в строке диагностики live: чтобы цифра обновлялась
+  // даже когда новых тиков нет (ясно видно «WS замолчал»).
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!liveActive) return;
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [liveActive]);
 
   const handlePickFile = () => fileInputRef.current?.click();
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -89,6 +102,9 @@ export function Header({
             </span>
           </span>
           <LiveStatusBadge status={liveStatus} />
+          {liveActive && liveStats && (
+            <LiveStatsLine stats={liveStats} nowMs={nowMs} />
+          )}
         </div>
       </div>
 
@@ -160,5 +176,51 @@ export function Header({
         </button>
       </div>
     </header>
+  );
+}
+
+/**
+ * Inline-диагностика live-стрима: «тики · кластеры · последний тик».
+ *
+ * Зачем: пользователь сразу видит, идут ли данные из WebSocket. Если число
+ * тиков растёт — стрим жив. Если не меняется > 30 сек — текст краснеет
+ * (явный сигнал «Binance не шлёт»). Не требует открытия DevTools.
+ */
+function LiveStatsLine({
+  stats,
+  nowMs,
+}: {
+  stats: LiveDebugStats;
+  nowMs: number;
+}) {
+  const ageSec =
+    stats.lastTickAt > 0 ? Math.max(0, Math.round((nowMs - stats.lastTickAt) / 1000)) : null;
+  const stale = ageSec !== null && ageSec > 30;
+  const noTicks = stats.ticksReceived === 0;
+
+  let lastLabel: string;
+  if (noTicks) {
+    lastLabel = 'нет тиков';
+  } else if (ageSec === null) {
+    lastLabel = '—';
+  } else {
+    lastLabel = `${ageSec}с назад`;
+  }
+
+  return (
+    <span
+      className={
+        stale || noTicks
+          ? 'rounded border border-rose-500/60 bg-rose-500/10 px-1.5 py-0.5 font-mono text-[11px] text-rose-300'
+          : 'rounded border border-tv-border bg-tv-bg-deep px-1.5 py-0.5 font-mono text-[11px] text-tv-text-dim'
+      }
+      title="Тиков из WS · кластеров в open-свече · с момента последнего тика"
+    >
+      <span className="text-tv-text">тиков:</span> {stats.ticksReceived.toLocaleString('ru-RU')}
+      <span className="mx-1 text-tv-text-dim">·</span>
+      <span className="text-tv-text">кл:</span> {stats.openCandleClusters}
+      <span className="mx-1 text-tv-text-dim">·</span>
+      <span className="text-tv-text">посл.:</span> {lastLabel}
+    </span>
   );
 }

@@ -28,6 +28,7 @@ import { loadPOIs, savePOIs } from '@/data/storage';
 import {
   createLiveCandleManager,
   type LiveCandleManager,
+  type LiveDebugStats,
 } from '@/data/liveCandleManager';
 import { mergeRaw5mWithLive, mergeRaw5mWithKlines } from '@/data/liveHistoryMerge';
 import { fetchRecentKlines5m } from '@/data/binanceRecentKlines';
@@ -182,6 +183,12 @@ export default function App() {
   const [liveClosedCandles, setLiveClosedCandles] = useState<Candle5m[]>([]);
   /** Текущая ещё-не-закрытая свеча (на rightmost краю графика). */
   const [liveOpenCandle, setLiveOpenCandle] = useState<Candle5m | null>(null);
+  /**
+   * Диагностика live-стрима в реальном времени (счётчик тиков, последний тик и т.д.).
+   * Обновляется раз в секунду из liveCandleManager.getDebugStats(). Передаётся в
+   * Header — пользователь видит, идут ли тики из WS, без открытия DevTools.
+   */
+  const [liveStats, setLiveStats] = useState<LiveDebugStats | null>(null);
   /** Хендл менеджера live (создаём при включении, уничтожаем при выключении). */
   const liveManagerRef = useRef<LiveCandleManager | null>(null);
   /**
@@ -530,6 +537,7 @@ export default function App() {
     // closed/open сбрасываем — следующий запуск загрузит свой хвост из IDB.
     setLiveClosedCandles([]);
     setLiveOpenCandle(null);
+    setLiveStats(null);
   }, []);
 
   const handleToggleLive = useCallback(async () => {
@@ -615,7 +623,7 @@ export default function App() {
         source: 'klines',
         message: stale
           ? `Live: Binance отдал устаревшие свечи! ${prefetched.length} шт., последняя — ${fmt(lastTs)} (${ageMinutes} мин назад). Проверь системные часы и регион.`
-          : `Live: догнали ${prefetched.length} × 5m: ${fmt(firstTs)} → ${fmt(lastTs)} (${ageMinutes} мин назад). Footprint пустой — оживает с каждой закрывающейся live-свечой.`,
+          : `Live: догнали ${prefetched.length} × 5m: ${fmt(firstTs)} → ${fmt(lastTs)} (${ageMinutes} мин назад). На prefetched-свечах footprint пустой (REST не отдаёт) — кластеры появятся на свечах, закрывающихся уже в Live (≈ раз в 5 мин).`,
       });
       // КРИТИЧНО: между prebuilt-датасетом (например 7 дней назад) и
       // 24ч-prefetched большой gap по времени. resetView() растянет
@@ -682,6 +690,21 @@ export default function App() {
       void liveManagerRef.current?.stop();
     };
   }, []);
+
+  // Polling диагностики: пока live активен — раз в секунду подтягиваем
+  // счётчики из менеджера (ticks, snapshots, lastTickAt). Header сам решит,
+  // как их визуализировать пользователю.
+  useEffect(() => {
+    if (!liveActive) {
+      setLiveStats(null);
+      return;
+    }
+    const id = setInterval(() => {
+      const mgr = liveManagerRef.current;
+      if (mgr) setLiveStats(mgr.getDebugStats());
+    }, 1000);
+    return () => clearInterval(id);
+  }, [liveActive]);
 
   const ltfPadMs = LTF_CONTEXT_CANDLES * candleDurationMs(ltfTf);
   const signalFocusPadMs = SIGNAL_FOCUS_HALF_CANDLES * candleDurationMs(ltfTf);
@@ -1250,6 +1273,7 @@ export default function App() {
         onBackToHTF={handleBackToHTF}
         liveStatus={liveStatus}
         liveActive={liveActive}
+        liveStats={liveStats}
         onToggleLive={handleToggleLive}
       />
 

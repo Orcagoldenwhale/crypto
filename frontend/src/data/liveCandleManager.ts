@@ -41,6 +41,24 @@ export interface LiveCandleSnapshot {
   openCandle: Candle5m | null;
 }
 
+/** Диагностика для UI и DevTools — сколько прилетело и сколько обработано. */
+export interface LiveDebugStats {
+  /** Сколько тиков было ingest'нуто (после дедупа — тех, что реально применились). */
+  ticksReceived: number;
+  /** Сколько snapshot'ов было эмитнуто наружу (через throttle). */
+  snapshotsEmitted: number;
+  /** Сколько 5m-свечей было закрыто после старта. */
+  candlesClosed: number;
+  /**
+   * `Date.now()` последнего реально применённого тика. 0 если тиков ещё не
+   * было. По разнице с now() UI показывает «последний тик: N сек назад» —
+   * если значение растёт, WS работает; если стоит — стрим замолчал.
+   */
+  lastTickAt: number;
+  /** Сколько кластеров в текущей открытой свече (быстрый health-check). */
+  openCandleClusters: number;
+}
+
 export interface LiveCandleManagerOptions {
   symbol: string;
   tickSize: number;
@@ -85,6 +103,8 @@ export interface LiveCandleManager {
   applyTicksBatch(ticks: readonly AggTradeTick[]): void;
   readonly status: LiveStatus;
   readonly snapshot: LiveCandleSnapshot;
+  /** Снимок счётчиков для UI/DevTools диагностики. */
+  getDebugStats(): LiveDebugStats;
 }
 
 export function createLiveCandleManager(
@@ -114,6 +134,10 @@ export function createLiveCandleManager(
   // Bookkeeping persistence
   let dirty = false;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  // ===== Диагностика для UI / DevTools =====
+  let ticksReceived = 0;
+  let snapshotsEmitted = 0;
+  let lastTickAt = 0;
   // ===== Throttle snapshot'ов =====
   // Время последнего emit'а snapshot — для дросселирования.
   let lastEmitAt = 0;
@@ -145,6 +169,7 @@ export function createLiveCandleManager(
 
   function doEmit(): void {
     lastEmitAt = now();
+    snapshotsEmitted++;
     if (throttleTimer) {
       clearTimeout(throttleTimer);
       throttleTimer = null;
@@ -240,6 +265,8 @@ export function createLiveCandleManager(
 
     openCandle = applyTickToCandle(openCandle, tick, opts.tickSize);
     lastAggTradeId = tick.aggTradeId;
+    ticksReceived++;
+    lastTickAt = now();
     dirty = true;
     return closedSlot;
   }
@@ -408,6 +435,15 @@ export function createLiveCandleManager(
     },
     get snapshot() {
       return getSnapshot();
+    },
+    getDebugStats() {
+      return {
+        ticksReceived,
+        snapshotsEmitted,
+        candlesClosed: closed.length,
+        lastTickAt,
+        openCandleClusters: openCandle ? openCandle.clusters.length : 0,
+      };
     },
   };
 }
