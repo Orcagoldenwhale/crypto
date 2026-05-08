@@ -597,9 +597,11 @@ export default function App() {
       // 24ч-prefetched может быть большой gap по времени. resetView()
       // растянет viewport на весь min..max диапазон → 24-часовой хвост
       // сожмётся в тонкую полоску справа. Поэтому делаем zoom именно
-      // на последние 24ч + 1ч буфера для будущих live-свечей.
+      // на последние 24ч + 5 мин буфера справа (=1 свеча в будущем).
+      // Раньше тут было +1ч, и пользователь видел огромное пустое
+      // пространство справа от последней свечи.
       const focusStart = prefetched[0]!.timestamp;
-      const focusEnd = Date.now() + 60 * 60 * 1000;
+      const focusEnd = Date.now() + 5 * 60 * 1000;
       // Двойной RAF: сначала React применит setRawData5m, затем
       // viewport hook увидит новые candles, и только после этого
       // zoomToTimeRange получит корректные timestamps для шкалы.
