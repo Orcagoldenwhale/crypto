@@ -519,6 +519,24 @@ export default function App() {
   const handleToggleSmcLayer = useCallback((layer: keyof SmcLayers) => {
     setSmcLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
   }, []);
+  /**
+   * Тоггл всей группы OB (базовый OB + BB + RB) одной кнопкой из тулбара.
+   * Если хотя бы один из трёх включён → выключаем всё. Иначе включаем все.
+   * Подсекции BB/RB остаются с независимым опт-ин через настройки —
+   * это master-выключатель.
+   */
+  const handleToggleObGroup = useCallback(() => {
+    setSmcLayers((prev) => {
+      const anyOn = prev.orderBlocks || prev.breakerBlocks || prev.rejectionBlocks;
+      const next = !anyOn;
+      return {
+        ...prev,
+        orderBlocks: next,
+        breakerBlocks: next,
+        rejectionBlocks: next,
+      };
+    });
+  }, []);
   const handleOpenSmcSettings = useCallback((x: number, y: number) => {
     setSmcSettingsAnchor({ x, y });
   }, []);
@@ -1330,6 +1348,7 @@ export default function App() {
           canRedo={canRedo}
           smcLayers={htfBehaviour ? smcLayers : null}
           onToggleSmcLayer={handleToggleSmcLayer}
+          onToggleObGroup={handleToggleObGroup}
           onOpenSmcSettings={handleOpenSmcSettings}
           onOpenHelp={handleOpenHelp}
           onSelectTool={setTool}

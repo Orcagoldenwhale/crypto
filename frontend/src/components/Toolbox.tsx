@@ -31,6 +31,8 @@ interface ToolboxProps {
    */
   smcLayers: SmcLayers | null;
   onToggleSmcLayer?: (layer: keyof SmcLayers) => void;
+  /** Master-тоггл для всей группы OB (OB + BB + RB). */
+  onToggleObGroup?: () => void;
   onOpenSmcSettings?: (anchorX: number, anchorY: number) => void;
   /** Открыть полное руководство (модалку HelpModal). */
   onOpenHelp?: () => void;
@@ -51,6 +53,7 @@ export function Toolbox({
   canRedo,
   smcLayers,
   onToggleSmcLayer,
+  onToggleObGroup,
   onOpenSmcSettings,
   onOpenHelp,
   onSelectTool,
@@ -175,12 +178,14 @@ export function Toolbox({
           </ToolButton>
           <ToolButton
             title={
-              smcLayers.orderBlocks
-                ? 'Order Blocks: показано (выкл.)'
-                : 'Order Blocks: скрыто (вкл.)'
+              smcLayers.orderBlocks || smcLayers.breakerBlocks || smcLayers.rejectionBlocks
+                ? 'Order Blocks (OB + BB + RB): показано (выкл.)'
+                : 'Order Blocks (OB + BB + RB): скрыто (вкл.)'
             }
-            active={smcLayers.orderBlocks}
-            onClick={() => onToggleSmcLayer?.('orderBlocks')}
+            active={
+              smcLayers.orderBlocks || smcLayers.breakerBlocks || smcLayers.rejectionBlocks
+            }
+            onClick={() => onToggleObGroup?.()}
           >
             <Package className="h-5 w-5" />
           </ToolButton>
