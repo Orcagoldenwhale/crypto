@@ -83,6 +83,10 @@ export function loadSmcLayers(): SmcLayers {
       typeof obj.breakerBlocks === 'boolean'
         ? obj.breakerBlocks
         : DEFAULT_SMC_LAYERS.breakerBlocks,
+    rejectionBlocks:
+      typeof obj.rejectionBlocks === 'boolean'
+        ? obj.rejectionBlocks
+        : DEFAULT_SMC_LAYERS.rejectionBlocks,
   };
 }
 
@@ -134,6 +138,16 @@ export function loadSmcOptions(): SmcOptions {
       typeof obj.obRequireAbsorption === 'boolean'
         ? obj.obRequireAbsorption
         : DEFAULT_SMC_OPTIONS.obRequireAbsorption,
+    rbWickRatio: clampNum(
+      obj.rbWickRatio,
+      1,
+      20,
+      DEFAULT_SMC_OPTIONS.rbWickRatio,
+    ),
+    rbRequireSweep:
+      typeof obj.rbRequireSweep === 'boolean'
+        ? obj.rbRequireSweep
+        : DEFAULT_SMC_OPTIONS.rbRequireSweep,
   };
 }
 
@@ -165,11 +179,15 @@ function parseHideMitigated(
         typeof o.breakerBlocks === 'boolean'
           ? o.breakerBlocks
           : DEFAULT_HIDE_MITIGATED.breakerBlocks,
+      rejectionBlocks:
+        typeof o.rejectionBlocks === 'boolean'
+          ? o.rejectionBlocks
+          : DEFAULT_HIDE_MITIGATED.rejectionBlocks,
     };
   }
   if (typeof raw === 'boolean') {
     // v2: глобальный флаг → раскопировать на все слои.
-    return { fvg: raw, liquidity: raw, structure: raw, orderBlocks: raw, breakerBlocks: raw };
+    return { fvg: raw, liquidity: raw, structure: raw, orderBlocks: raw, breakerBlocks: raw, rejectionBlocks: raw };
   }
   if (typeof legacyFvg === 'boolean') {
     // v1: только FVG.

@@ -101,6 +101,7 @@ export interface SmcHideMitigated {
   structure: boolean;
   orderBlocks: boolean;
   breakerBlocks: boolean;
+  rejectionBlocks: boolean;
 }
 
 /** Способ выделения границ OB. */
@@ -133,6 +134,17 @@ export interface SmcOptions {
    * внутри тела блока (слабое поглощение).
    */
   obRequireAbsorption: boolean;
+  /**
+   * Минимальное соотношение фитиль/тело для Rejection Block.
+   * Свеча считается RB только если её фитиль >= rbWickRatio * тело.
+   */
+  rbWickRatio: number;
+  /**
+   * Требовать ли для RB снятие ликвидности (sweep swing high/low).
+   * Если true — RB-фитиль должен пробивать swing-точку, обнаруженную
+   * детектором ликвидности.
+   */
+  rbRequireSweep: boolean;
 }
 
 /** Видимость каждого слоя (тогглы из Toolbox). */
@@ -142,6 +154,7 @@ export interface SmcLayers {
   structure: boolean;
   orderBlocks: boolean;
   breakerBlocks: boolean;
+  rejectionBlocks: boolean;
 }
 
 /** Результат расчёта — ровно то, что отрендерится поверх свечей. */
@@ -151,6 +164,7 @@ export interface SmcOverlay {
   structure: readonly StructureBreak[];
   orderBlocks: readonly OrderBlockZone[];
   breakerBlocks: readonly BreakerBlockZone[];
+  rejectionBlocks: readonly RejectionBlockZone[];
 }
 
 export const EMPTY_SMC_OVERLAY: SmcOverlay = Object.freeze({
@@ -159,6 +173,7 @@ export const EMPTY_SMC_OVERLAY: SmcOverlay = Object.freeze({
   structure: [],
   orderBlocks: [],
   breakerBlocks: [],
+  rejectionBlocks: [],
 });
 
 export const DEFAULT_HIDE_MITIGATED: SmcHideMitigated = Object.freeze({
@@ -167,6 +182,7 @@ export const DEFAULT_HIDE_MITIGATED: SmcHideMitigated = Object.freeze({
   structure: false,
   orderBlocks: false,
   breakerBlocks: false,
+  rejectionBlocks: false,
 });
 
 export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
@@ -178,6 +194,8 @@ export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
   obExtraction: 'wicks',
   obUseMeanThreshold: false,
   obRequireAbsorption: false,
+  rbWickRatio: 2,
+  rbRequireSweep: true,
 });
 
 export const DEFAULT_SMC_LAYERS: SmcLayers = Object.freeze({
@@ -186,6 +204,7 @@ export const DEFAULT_SMC_LAYERS: SmcLayers = Object.freeze({
   structure: true,
   orderBlocks: true,
   breakerBlocks: false,
+  rejectionBlocks: false,
 });
 
 // ============================================================================
@@ -290,4 +309,37 @@ export interface BreakerBlockZone {
   unmitigated: boolean;
   /** ID исходного OB, из которого получился этот BB. */
   sourceObId: SmcZoneId;
+}
+
+/**
+ * Rejection Block (RB) — свеча с длинным фитилём, снимающим ликвидность.
+ *
+ * Зона = САМ ФИТИЛЬ (не вся свеча):
+ *   bull RB: фитиль снизу → зона [low, min(open, close)]
+ *   bear RB: фитиль сверху → зона [max(open, close), high]
+ *
+ * Критерии:
+ *   - длина фитиля ≥ rbWickRatio × тело свечи;
+ *   - фитиль пробивает swing-точку (sweep ликвидности) — если включено.
+ */
+export interface RejectionBlockZone {
+  id: SmcZoneId;
+  /** 'bull' = поддержка снизу; 'bear' = сопротивление сверху. */
+  kind: 'bull' | 'bear';
+  /** Время RB-свечи (визуальная левая граница). */
+  obTime: TimestampMs;
+  /** Зона активна после закрытия RB-свечи. */
+  startTime: TimestampMs;
+  /** Правая граница: mitigation либо последняя свеча. */
+  endTime: TimestampMs;
+  /** Нижняя граница фитиля. */
+  minPrice: Price;
+  /** Верхняя граница фитиля. */
+  maxPrice: Price;
+  /** Mean Threshold — 50% фитиля. */
+  mtPrice: Price;
+  /** Был ли подтверждённый sweep ликвидности (если детектировался). */
+  hasSweep: boolean;
+  /** true = ещё не отработан (цена не возвращалась внутрь фитиля). */
+  unmitigated: boolean;
 }

@@ -18,6 +18,7 @@ import type {
   FvgZone,
   LiquidityZone,
   OrderBlockZone,
+  RejectionBlockZone,
   SmcOverlay,
   StructureBreak,
 } from './types';
@@ -69,6 +70,16 @@ const COLORS = {
   bbBearFillMit: 'rgba(217, 70, 239, 0.05)',
   bbBearStrokeMit: 'rgba(217, 70, 239, 0.4)',
 
+  // Rejection Blocks — бирюзовый/янтарный оттенок, чтобы отличаться.
+  rbBullFill: 'rgba(20, 184, 166, 0.16)', // teal-500
+  rbBullStroke: 'rgba(20, 184, 166, 0.85)',
+  rbBullFillMit: 'rgba(20, 184, 166, 0.05)',
+  rbBullStrokeMit: 'rgba(20, 184, 166, 0.4)',
+  rbBearFill: 'rgba(245, 158, 11, 0.16)', // amber-500
+  rbBearStroke: 'rgba(245, 158, 11, 0.85)',
+  rbBearFillMit: 'rgba(245, 158, 11, 0.05)',
+  rbBearStrokeMit: 'rgba(245, 158, 11, 0.4)',
+
   label: 'rgba(229, 231, 235, 0.92)', // gray-200
   labelShadow: 'rgba(15, 23, 42, 0.85)', // slate-900
 } as const;
@@ -95,17 +106,12 @@ export function renderSmcOverlay({
     overlay.liquidity.length === 0 &&
     overlay.structure.length === 0 &&
     overlay.orderBlocks.length === 0 &&
-    overlay.breakerBlocks.length === 0
+    overlay.breakerBlocks.length === 0 &&
+    overlay.rejectionBlocks.length === 0
   ) {
     return;
   }
 
-  // Порядок отрисовки (снизу вверх по визуальной иерархии):
-  //   1. FVG — фоновая заливка;
-  //   2. Order Blocks — основные «зоны интереса» с насыщенной заливкой;
-  //   3. Breaker Blocks — фиолетовая заливка поверх OB;
-  //   4. Liquidity — горизонтальные линии поверх зон;
-  //   5. Structure — линии BOS/CHoCH с подписями (самые верхние).
   for (const fvg of overlay.fvgs) {
     drawFvg(ctx, metrics, viewport, fvg);
   }
@@ -114,6 +120,9 @@ export function renderSmcOverlay({
   }
   for (const bb of overlay.breakerBlocks) {
     drawBreakerBlock(ctx, metrics, viewport, bb);
+  }
+  for (const rb of overlay.rejectionBlocks) {
+    drawRejectionBlock(ctx, metrics, viewport, rb);
   }
   for (const liq of overlay.liquidity) {
     drawLiquidity(ctx, metrics, viewport, liq);
@@ -492,6 +501,60 @@ function drawBreakerBlock(
   // Подпись: BB↑/BB↓.
   const arrow = isBull ? '↑' : '↓';
   const text = `BB${arrow}`;
+  ctx.save();
+  ctx.font = '10px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  ctx.textBaseline = 'middle';
+  const padX = 3;
+  const padY = 2;
+  const tw = ctx.measureText(text).width;
+  const labelY = isBull ? y + 8 : y - 8;
+  ctx.fillStyle = COLORS.labelShadow;
+  ctx.fillRect(x + 4 - padX, labelY - 6 - padY, tw + padX * 2, 12 + padY * 2);
+  ctx.fillStyle = stroke;
+  ctx.fillText(text, x + 4, labelY);
+  ctx.restore();
+}
+
+function drawRejectionBlock(
+  ctx: CanvasRenderingContext2D,
+  metrics: CanvasMetrics,
+  vp: Viewport,
+  rb: RejectionBlockZone,
+): void {
+  const x1 = timeToX(rb.obTime, vp, metrics);
+  const x2 = timeToX(rb.endTime, vp, metrics);
+  const y1 = priceToY(rb.maxPrice, vp, metrics);
+  const y2 = priceToY(rb.minPrice, vp, metrics);
+  const x = Math.min(x1, x2);
+  const w = Math.max(1, Math.abs(x2 - x1));
+  const y = Math.min(y1, y2);
+  const h = Math.max(1, Math.abs(y2 - y1));
+
+  if (x + w < 0 || x > metrics.width) return;
+  if (y + h < 0 || y > metrics.height) return;
+
+  const isBull = rb.kind === 'bull';
+  const fill = isBull
+    ? rb.unmitigated ? COLORS.rbBullFill : COLORS.rbBullFillMit
+    : rb.unmitigated ? COLORS.rbBearFill : COLORS.rbBearFillMit;
+  const stroke = isBull
+    ? rb.unmitigated ? COLORS.rbBullStroke : COLORS.rbBullStrokeMit
+    : rb.unmitigated ? COLORS.rbBearStroke : COLORS.rbBearStrokeMit;
+
+  ctx.save();
+  ctx.fillStyle = fill;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = rb.unmitigated ? 1.25 : 1;
+  if (!rb.unmitigated) ctx.setLineDash([4, 3]);
+  ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Подпись RB с пометкой sweep.
+  const arrow = isBull ? '↑' : '↓';
+  const sweepTag = rb.hasSweep ? ' ✕' : '';
+  const text = `RB${arrow}${sweepTag}`;
   ctx.save();
   ctx.font = '10px ui-sans-serif, system-ui, -apple-system, sans-serif';
   ctx.textBaseline = 'middle';

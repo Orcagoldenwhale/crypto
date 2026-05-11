@@ -88,6 +88,22 @@ export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRe
     });
   }
 
+  for (const rb of overlay.rejectionBlocks) {
+    const h = rb.maxPrice - rb.minPrice;
+    const gap = h * gapFrac;
+    zones.push({
+      id: `rb-${rb.id}`,
+      startTime: rb.startTime,
+      endTime: rb.endTime,
+      minPrice: rb.minPrice - gap,
+      maxPrice: rb.maxPrice + gap,
+      fvgKind: null,
+      fvgMinPrice: 0,
+      fvgMaxPrice: 0,
+      obKind: rb.kind,
+    });
+  }
+
   for (const s of overlay.structure) {
     const band = s.level * 0.001;
     const gap = band * gapFrac;

@@ -13,6 +13,7 @@ import { findLiquidityZones } from './detectLiquidity';
 import { detectStructure } from './detectStructure';
 import { detectOrderBlocks } from './detectOrderBlocks';
 import { detectBreakerBlocks } from './detectBreakerBlocks';
+import { detectRejectionBlocks } from './detectRejectionBlocks';
 import {
   EMPTY_SMC_OVERLAY,
   type SmcLayers,
@@ -31,7 +32,8 @@ export function runSmcAnalysis(
     !layers.liquidity &&
     !layers.structure &&
     !layers.orderBlocks &&
-    !layers.breakerBlocks
+    !layers.breakerBlocks &&
+    !layers.rejectionBlocks
   ) {
     return EMPTY_SMC_OVERLAY;
   }
@@ -91,7 +93,26 @@ export function runSmcAnalysis(
     ? breakerBlocksRaw.filter((bb) => bb.unmitigated)
     : breakerBlocksRaw;
 
-  return { fvgs, liquidity, structure, orderBlocks, breakerBlocks };
+  // RB опирается на liquidity (нужны swing-точки для sweep-проверки).
+  // Если слой liquidity выключен, но RB требует sweep — считаем
+  // ликвидность отдельно для нужд RB.
+  const liquidityForRb = layers.rejectionBlocks && !layers.liquidity
+    ? findLiquidityZones(candles, {
+        lookback: options.lookback,
+        equalityTolerancePct: options.equalityTolerancePct,
+      })
+    : liquidityRaw;
+  const rejectionBlocksRaw = layers.rejectionBlocks
+    ? detectRejectionBlocks(candles, liquidityForRb, {
+        wickRatio: options.rbWickRatio,
+        requireSweep: options.rbRequireSweep,
+      })
+    : [];
+  const rejectionBlocks = hide.rejectionBlocks
+    ? rejectionBlocksRaw.filter((rb) => rb.unmitigated)
+    : rejectionBlocksRaw;
+
+  return { fvgs, liquidity, structure, orderBlocks, breakerBlocks, rejectionBlocks };
 }
 
 export * from './types';
@@ -100,4 +121,5 @@ export { findLiquidityZones } from './detectLiquidity';
 export { detectStructure } from './detectStructure';
 export { detectOrderBlocks } from './detectOrderBlocks';
 export { detectBreakerBlocks } from './detectBreakerBlocks';
+export { detectRejectionBlocks } from './detectRejectionBlocks';
 export { renderSmcOverlay } from './render';

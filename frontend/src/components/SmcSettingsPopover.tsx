@@ -48,6 +48,7 @@ const HIDE_TOGGLES: readonly HideToggleSpec[] = [
   { key: 'structure', label: 'Structure', hint: 'BOS/CHoCH с уже состоявшимся retest' },
   { key: 'orderBlocks', label: 'Order Blocks', hint: 'отработанные (цена касалась OB)' },
   { key: 'breakerBlocks', label: 'Breaker Blocks', hint: 'отработанные (цена касалась BB)' },
+  { key: 'rejectionBlocks', label: 'Rejection Blocks', hint: 'отработанные (цена возвращалась в фитиль)' },
 ];
 
 export function SmcSettingsPopover({
@@ -245,6 +246,45 @@ export function SmcSettingsPopover({
             <span>Требовать поглощение телом</span>
             <span className="text-[10px] text-tv-text-muted">
               импульсная свеча должна закрыться за телом OB
+            </span>
+          </span>
+        </label>
+      </div>
+
+      <div className="flex flex-col gap-1.5 border-t border-tv-border pt-2">
+        <span className="text-[11px] font-medium text-tv-text">
+          Rejection Blocks
+        </span>
+
+        <Field
+          label="Фитиль / тело (≥)"
+          hint="свеча считается RB только если фитиль ≥ N × тело"
+        >
+          <input
+            type="number"
+            min={1}
+            max={20}
+            step={0.5}
+            value={options.rbWickRatio}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              if (Number.isFinite(v)) setField('rbWickRatio', clamp(v, 1, 20));
+            }}
+            className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
+          />
+        </Field>
+
+        <label className="flex cursor-pointer items-start gap-2 text-xs text-tv-text">
+          <input
+            type="checkbox"
+            checked={options.rbRequireSweep}
+            onChange={(e) => setField('rbRequireSweep', e.target.checked)}
+            className="mt-0.5 h-3.5 w-3.5 accent-tv-accent"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span>Требовать sweep ликвидности</span>
+            <span className="text-[10px] text-tv-text-muted">
+              фитиль должен пробивать swing-high/low
             </span>
           </span>
         </label>
