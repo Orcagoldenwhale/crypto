@@ -12,6 +12,7 @@ import { findFVGs } from './detectFvg';
 import { findLiquidityZones } from './detectLiquidity';
 import { detectStructure } from './detectStructure';
 import { detectOrderBlocks } from './detectOrderBlocks';
+import { detectBreakerBlocks } from './detectBreakerBlocks';
 import {
   EMPTY_SMC_OVERLAY,
   type SmcLayers,
@@ -29,7 +30,8 @@ export function runSmcAnalysis(
     !layers.fvg &&
     !layers.liquidity &&
     !layers.structure &&
-    !layers.orderBlocks
+    !layers.orderBlocks &&
+    !layers.breakerBlocks
   ) {
     return EMPTY_SMC_OVERLAY;
   }
@@ -55,7 +57,8 @@ export function runSmcAnalysis(
 
   // OB зависит от структуры: если пользователь скрыл слой structure, но
   // просит OB — мы всё равно считаем breaks, просто не отдаём их в overlay.
-  const needsBreaks = layers.structure || layers.orderBlocks;
+  // BB также требует и breaks, и OB.
+  const needsBreaks = layers.structure || layers.orderBlocks || layers.breakerBlocks;
   const allBreaks = needsBreaks
     ? detectStructure(candles, { lookback: options.lookback })
     : [];
@@ -66,18 +69,29 @@ export function runSmcAnalysis(
     ? structureRaw.filter((s) => s.retestTime === null)
     : structureRaw;
 
-  const orderBlocksRaw = layers.orderBlocks
+  // OB всегда считаем если нужен сам слой ИЛИ нужны BB (они строятся из OB).
+  const needsOb = layers.orderBlocks || layers.breakerBlocks;
+  const orderBlocksRaw = needsOb
     ? detectOrderBlocks(candles, allBreaks, {
         extraction: options.obExtraction,
         useMeanThreshold: options.obUseMeanThreshold,
         requireAbsorption: options.obRequireAbsorption,
       })
     : [];
-  const orderBlocks = hide.orderBlocks
-    ? orderBlocksRaw.filter((ob) => ob.unmitigated)
-    : orderBlocksRaw;
+  const orderBlocks = layers.orderBlocks
+    ? hide.orderBlocks
+      ? orderBlocksRaw.filter((ob) => ob.unmitigated)
+      : orderBlocksRaw
+    : [];
 
-  return { fvgs, liquidity, structure, orderBlocks };
+  const breakerBlocksRaw = layers.breakerBlocks
+    ? detectBreakerBlocks(candles, orderBlocksRaw, allBreaks)
+    : [];
+  const breakerBlocks = hide.breakerBlocks
+    ? breakerBlocksRaw.filter((bb) => bb.unmitigated)
+    : breakerBlocksRaw;
+
+  return { fvgs, liquidity, structure, orderBlocks, breakerBlocks };
 }
 
 export * from './types';
@@ -85,4 +99,5 @@ export { findFVGs } from './detectFvg';
 export { findLiquidityZones } from './detectLiquidity';
 export { detectStructure } from './detectStructure';
 export { detectOrderBlocks } from './detectOrderBlocks';
+export { detectBreakerBlocks } from './detectBreakerBlocks';
 export { renderSmcOverlay } from './render';

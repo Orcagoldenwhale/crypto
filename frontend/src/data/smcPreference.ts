@@ -79,6 +79,10 @@ export function loadSmcLayers(): SmcLayers {
       typeof obj.orderBlocks === 'boolean'
         ? obj.orderBlocks
         : DEFAULT_SMC_LAYERS.orderBlocks,
+    breakerBlocks:
+      typeof obj.breakerBlocks === 'boolean'
+        ? obj.breakerBlocks
+        : DEFAULT_SMC_LAYERS.breakerBlocks,
   };
 }
 
@@ -157,11 +161,15 @@ function parseHideMitigated(
         typeof o.orderBlocks === 'boolean'
           ? o.orderBlocks
           : DEFAULT_HIDE_MITIGATED.orderBlocks,
+      breakerBlocks:
+        typeof o.breakerBlocks === 'boolean'
+          ? o.breakerBlocks
+          : DEFAULT_HIDE_MITIGATED.breakerBlocks,
     };
   }
   if (typeof raw === 'boolean') {
     // v2: глобальный флаг → раскопировать на все слои.
-    return { fvg: raw, liquidity: raw, structure: raw, orderBlocks: raw };
+    return { fvg: raw, liquidity: raw, structure: raw, orderBlocks: raw, breakerBlocks: raw };
   }
   if (typeof legacyFvg === 'boolean') {
     // v1: только FVG.

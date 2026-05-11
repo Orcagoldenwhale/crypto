@@ -47,6 +47,7 @@ const HIDE_TOGGLES: readonly HideToggleSpec[] = [
   { key: 'liquidity', label: 'Liquidity', hint: 'снятые (был sweep)' },
   { key: 'structure', label: 'Structure', hint: 'BOS/CHoCH с уже состоявшимся retest' },
   { key: 'orderBlocks', label: 'Order Blocks', hint: 'отработанные (цена касалась OB)' },
+  { key: 'breakerBlocks', label: 'Breaker Blocks', hint: 'отработанные (цена касалась BB)' },
 ];
 
 export function SmcSettingsPopover({

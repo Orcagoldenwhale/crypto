@@ -9,6 +9,7 @@ import {
   Waves,
   Activity,
   Package,
+  PackageOpen,
   Settings,
   HelpCircle,
 } from 'lucide-react';
@@ -183,6 +184,17 @@ export function Toolbox({
             onClick={() => onToggleSmcLayer?.('orderBlocks')}
           >
             <Package className="h-5 w-5" />
+          </ToolButton>
+          <ToolButton
+            title={
+              smcLayers.breakerBlocks
+                ? 'Breaker Blocks: показано (выкл.)'
+                : 'Breaker Blocks: скрыто (вкл.)'
+            }
+            active={smcLayers.breakerBlocks}
+            onClick={() => onToggleSmcLayer?.('breakerBlocks')}
+          >
+            <PackageOpen className="h-5 w-5" />
           </ToolButton>
           <ToolButton
             title="Настройки SMC"

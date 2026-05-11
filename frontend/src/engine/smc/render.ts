@@ -14,6 +14,7 @@
 import { priceToY, timeToX } from '../scale';
 import type { CanvasMetrics, Viewport } from '../scale';
 import type {
+  BreakerBlockZone,
   FvgZone,
   LiquidityZone,
   OrderBlockZone,
@@ -58,6 +59,16 @@ const COLORS = {
   obBearFillMit: 'rgba(239, 68, 68, 0.06)',
   obBearStrokeMit: 'rgba(239, 68, 68, 0.4)',
 
+  // Breaker Blocks — фиолетовый оттенок (это пробитый OB, отличается визуально).
+  bbBullFill: 'rgba(168, 85, 247, 0.14)', // purple-500
+  bbBullStroke: 'rgba(168, 85, 247, 0.85)',
+  bbBullFillMit: 'rgba(168, 85, 247, 0.05)',
+  bbBullStrokeMit: 'rgba(168, 85, 247, 0.4)',
+  bbBearFill: 'rgba(217, 70, 239, 0.14)', // fuchsia-500
+  bbBearStroke: 'rgba(217, 70, 239, 0.85)',
+  bbBearFillMit: 'rgba(217, 70, 239, 0.05)',
+  bbBearStrokeMit: 'rgba(217, 70, 239, 0.4)',
+
   label: 'rgba(229, 231, 235, 0.92)', // gray-200
   labelShadow: 'rgba(15, 23, 42, 0.85)', // slate-900
 } as const;
@@ -83,7 +94,8 @@ export function renderSmcOverlay({
     overlay.fvgs.length === 0 &&
     overlay.liquidity.length === 0 &&
     overlay.structure.length === 0 &&
-    overlay.orderBlocks.length === 0
+    overlay.orderBlocks.length === 0 &&
+    overlay.breakerBlocks.length === 0
   ) {
     return;
   }
@@ -91,13 +103,17 @@ export function renderSmcOverlay({
   // Порядок отрисовки (снизу вверх по визуальной иерархии):
   //   1. FVG — фоновая заливка;
   //   2. Order Blocks — основные «зоны интереса» с насыщенной заливкой;
-  //   3. Liquidity — горизонтальные линии поверх зон;
-  //   4. Structure — линии BOS/CHoCH с подписями (самые верхние).
+  //   3. Breaker Blocks — фиолетовая заливка поверх OB;
+  //   4. Liquidity — горизонтальные линии поверх зон;
+  //   5. Structure — линии BOS/CHoCH с подписями (самые верхние).
   for (const fvg of overlay.fvgs) {
     drawFvg(ctx, metrics, viewport, fvg);
   }
   for (const ob of overlay.orderBlocks) {
     drawOrderBlock(ctx, metrics, viewport, ob);
+  }
+  for (const bb of overlay.breakerBlocks) {
+    drawBreakerBlock(ctx, metrics, viewport, bb);
   }
   for (const liq of overlay.liquidity) {
     drawLiquidity(ctx, metrics, viewport, liq);
@@ -434,5 +450,58 @@ function drawObLabel(
   ctx.fillRect(x - padX, labelY - 6 - padY, w + padX * 2, 12 + padY * 2);
   ctx.fillStyle = color;
   ctx.fillText(text, x, labelY);
+  ctx.restore();
+}
+
+function drawBreakerBlock(
+  ctx: CanvasRenderingContext2D,
+  metrics: CanvasMetrics,
+  vp: Viewport,
+  bb: BreakerBlockZone,
+): void {
+  const x1 = timeToX(bb.obTime, vp, metrics);
+  const x2 = timeToX(bb.endTime, vp, metrics);
+  const y1 = priceToY(bb.maxPrice, vp, metrics);
+  const y2 = priceToY(bb.minPrice, vp, metrics);
+  const x = Math.min(x1, x2);
+  const w = Math.max(1, Math.abs(x2 - x1));
+  const y = Math.min(y1, y2);
+  const h = Math.max(1, Math.abs(y2 - y1));
+
+  if (x + w < 0 || x > metrics.width) return;
+  if (y + h < 0 || y > metrics.height) return;
+
+  const isBull = bb.kind === 'bull';
+  const fill = isBull
+    ? bb.unmitigated ? COLORS.bbBullFill : COLORS.bbBullFillMit
+    : bb.unmitigated ? COLORS.bbBearFill : COLORS.bbBearFillMit;
+  const stroke = isBull
+    ? bb.unmitigated ? COLORS.bbBullStroke : COLORS.bbBullStrokeMit
+    : bb.unmitigated ? COLORS.bbBearStroke : COLORS.bbBearStrokeMit;
+
+  ctx.save();
+  ctx.fillStyle = fill;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = bb.unmitigated ? 1.25 : 1;
+  if (!bb.unmitigated) ctx.setLineDash([4, 3]);
+  ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Подпись: BB↑/BB↓.
+  const arrow = isBull ? '↑' : '↓';
+  const text = `BB${arrow}`;
+  ctx.save();
+  ctx.font = '10px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  ctx.textBaseline = 'middle';
+  const padX = 3;
+  const padY = 2;
+  const tw = ctx.measureText(text).width;
+  const labelY = isBull ? y + 8 : y - 8;
+  ctx.fillStyle = COLORS.labelShadow;
+  ctx.fillRect(x + 4 - padX, labelY - 6 - padY, tw + padX * 2, 12 + padY * 2);
+  ctx.fillStyle = stroke;
+  ctx.fillText(text, x + 4, labelY);
   ctx.restore();
 }

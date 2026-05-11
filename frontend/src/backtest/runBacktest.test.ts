@@ -52,6 +52,7 @@ describe('runBacktest', () => {
       liquidity: [],
       structure: [],
       orderBlocks: [],
+      breakerBlocks: [],
     };
 
     // LONG signal: close > mid, delta > 0, close > vpoc, delta_at_low < 0
@@ -87,6 +88,7 @@ describe('runBacktest', () => {
       liquidity: [],
       structure: [],
       orderBlocks: [],
+      breakerBlocks: [],
     };
 
     const candles: Candle5m[] = [
@@ -113,6 +115,7 @@ describe('runBacktest', () => {
       liquidity: [],
       structure: [],
       orderBlocks: [],
+      breakerBlocks: [],
     };
 
     // Two LONG signals followed by stop-outs
@@ -154,6 +157,7 @@ describe('runBacktest', () => {
       liquidity: [],
       structure: [],
       orderBlocks: [],
+      breakerBlocks: [],
     };
 
     // Candle 1 fills FVG 75% (low=101.5 → penetration=(102-101.5)/2=25%... no)
@@ -203,6 +207,7 @@ describe('runBacktest', () => {
       liquidity: [],
       structure: [],
       orderBlocks: [],
+      breakerBlocks: [],
     };
 
     // close=100.5 > mid=(101+99)/2=100 ✓, delta>0 ✓, close>vpoc ✓, delta_at_low<0 ✓

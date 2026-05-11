@@ -100,6 +100,7 @@ export interface SmcHideMitigated {
   liquidity: boolean;
   structure: boolean;
   orderBlocks: boolean;
+  breakerBlocks: boolean;
 }
 
 /** Способ выделения границ OB. */
@@ -140,6 +141,7 @@ export interface SmcLayers {
   liquidity: boolean;
   structure: boolean;
   orderBlocks: boolean;
+  breakerBlocks: boolean;
 }
 
 /** Результат расчёта — ровно то, что отрендерится поверх свечей. */
@@ -148,6 +150,7 @@ export interface SmcOverlay {
   liquidity: readonly LiquidityZone[];
   structure: readonly StructureBreak[];
   orderBlocks: readonly OrderBlockZone[];
+  breakerBlocks: readonly BreakerBlockZone[];
 }
 
 export const EMPTY_SMC_OVERLAY: SmcOverlay = Object.freeze({
@@ -155,6 +158,7 @@ export const EMPTY_SMC_OVERLAY: SmcOverlay = Object.freeze({
   liquidity: [],
   structure: [],
   orderBlocks: [],
+  breakerBlocks: [],
 });
 
 export const DEFAULT_HIDE_MITIGATED: SmcHideMitigated = Object.freeze({
@@ -162,6 +166,7 @@ export const DEFAULT_HIDE_MITIGATED: SmcHideMitigated = Object.freeze({
   liquidity: false,
   structure: false,
   orderBlocks: false,
+  breakerBlocks: false,
 });
 
 export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
@@ -180,6 +185,7 @@ export const DEFAULT_SMC_LAYERS: SmcLayers = Object.freeze({
   liquidity: true,
   structure: true,
   orderBlocks: true,
+  breakerBlocks: false,
 });
 
 // ============================================================================
@@ -254,4 +260,34 @@ export interface OrderBlockZone {
   unmitigated: boolean;
   /** Тип структурного события, породившего этот OB. */
   breakKind: 'BOS' | 'CHoCH';
+}
+
+/**
+ * Breaker Block (BB) — пробитый и развернувшийся ордерблок.
+ *
+ * Логика: bull-OB сработал → цена развернулась → пробила нижнюю границу OB
+ * → произошёл BOS↓ → теперь этот блок становится bear-BB (сопротивление).
+ * Аналогично bear-OB → bull-BB (поддержка) после пробоя вверх.
+ *
+ * Зона совпадает с границами оригинального OB, но `kind` инвертируется:
+ * блок теперь работает в противоположную сторону.
+ */
+export interface BreakerBlockZone {
+  id: SmcZoneId;
+  /** Направление BB после переворота. */
+  kind: 'bull' | 'bear';
+  /** Время свечи, на которой произошёл пробой OB → break (start активности). */
+  startTime: TimestampMs;
+  /** Время mitigation BB либо последняя свеча. */
+  endTime: TimestampMs;
+  /** Время оригинальной OB-свечи — визуальная левая граница. */
+  obTime: TimestampMs;
+  minPrice: Price;
+  maxPrice: Price;
+  /** Mean Threshold — 50% тела оригинальной OB-свечи. */
+  mtPrice: Price;
+  /** true = ещё не отработан (цена не возвращалась к BB). */
+  unmitigated: boolean;
+  /** ID исходного OB, из которого получился этот BB. */
+  sourceObId: SmcZoneId;
 }
