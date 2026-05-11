@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -17,6 +18,25 @@ export default defineConfig({
           res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
           res.setHeader('Pragma', 'no-cache');
           res.setHeader('Expires', '0');
+          next();
+        });
+      },
+    },
+    {
+      name: 'bt-log-writer',
+      configureServer(server) {
+        const logPath = path.resolve(__dirname, 'backtest-log.txt');
+        server.middlewares.use((req, res, next) => {
+          if (req.method === 'POST' && req.url === '/api/bt-log') {
+            const chunks: Buffer[] = [];
+            req.on('data', (c: Buffer) => chunks.push(c));
+            req.on('end', () => {
+              fs.writeFileSync(logPath, Buffer.concat(chunks).toString('utf-8'));
+              res.writeHead(200);
+              res.end('ok');
+            });
+            return;
+          }
           next();
         });
       },

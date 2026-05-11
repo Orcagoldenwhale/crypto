@@ -301,20 +301,15 @@ export function runBacktest(
     }
   }
 
-  const logText = log.join('\n');
+  const header = `Backtest: ${trades.length} trades, ${wins}W/${losses}L, ${totalPnlR >= 0 ? '+' : ''}${totalPnlR.toFixed(1)}R\nSettings: ${JSON.stringify(settings)}\nZones: ${zones.length}\n${'='.repeat(80)}`;
+  const logText = header + '\n' + log.join('\n');
   try {
-    const blob = new Blob([logText], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = Object.assign(document.createElement('a'), {
-      href: url,
-      download: 'backtest-log.txt',
-      style: 'display:none',
-    });
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  } catch { /* SSR / worker */ }
+    fetch('/api/bt-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: logText,
+    }).catch(() => {});
+  } catch { /* ignore */ }
 
   return {
     totalTrades: trades.length,
