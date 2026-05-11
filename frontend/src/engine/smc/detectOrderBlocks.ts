@@ -79,7 +79,8 @@ export function detectOrderBlocks(
     out.push({
       id: `ob-${kind}-${ob.timestamp}`,
       kind,
-      startTime: ob.timestamp,
+      obTime: ob.timestamp,
+      startTime: arr[breakIdx]!.timestamp,
       endTime: mit !== null ? mit : lastTime,
       minPrice,
       maxPrice,

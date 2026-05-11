@@ -64,11 +64,12 @@ describe('detectOrderBlocks', () => {
     expect(obs).toHaveLength(1);
     const ob = obs[0]!;
     expect(ob.kind).toBe('bull');
-    expect(ob.startTime).toBe(t(3));
+    expect(ob.obTime).toBe(t(3));
+    expect(ob.startTime).toBe(t(5));
     expect(ob.minPrice).toBe(8.5);
     expect(ob.maxPrice).toBe(9.9);
     expect(ob.breakKind).toBe('BOS');
-    expect(ob.unmitigated).toBe(true); // после break low не возвращался к 9.9
+    expect(ob.unmitigated).toBe(true);
   });
 
   it('Bear OB: последняя bullish-свеча перед break↓', () => {
@@ -97,7 +98,8 @@ describe('detectOrderBlocks', () => {
     expect(obs).toHaveLength(1);
     const ob = obs[0]!;
     expect(ob.kind).toBe('bear');
-    expect(ob.startTime).toBe(t(3));
+    expect(ob.obTime).toBe(t(3));
+    expect(ob.startTime).toBe(t(5));
     expect(ob.minPrice).toBe(8.4);
     expect(ob.maxPrice).toBe(9.5);
     expect(ob.unmitigated).toBe(true);

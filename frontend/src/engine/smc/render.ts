@@ -373,7 +373,7 @@ function drawOrderBlock(
   vp: Viewport,
   ob: OrderBlockZone,
 ): void {
-  const x1 = timeToX(ob.startTime, vp, metrics);
+  const x1 = timeToX(ob.obTime, vp, metrics);
   const x2 = timeToX(ob.endTime, vp, metrics);
   const y1 = priceToY(ob.maxPrice, vp, metrics);
   const y2 = priceToY(ob.minPrice, vp, metrics);
