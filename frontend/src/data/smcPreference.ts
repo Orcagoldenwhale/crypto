@@ -184,18 +184,18 @@ export function loadSmcOptions(): SmcOptions {
       5,
       DEFAULT_SMC_OPTIONS.obMultiCandleMax,
     ),
-    obRequireSweep:
-      typeof obj.obRequireSweep === 'boolean'
-        ? obj.obRequireSweep
-        : DEFAULT_SMC_OPTIONS.obRequireSweep,
-    obRequireFvg:
-      typeof obj.obRequireFvg === 'boolean'
-        ? obj.obRequireFvg
-        : DEFAULT_SMC_OPTIONS.obRequireFvg,
-    obRequirePrevBlock:
-      typeof obj.obRequirePrevBlock === 'boolean'
-        ? obj.obRequirePrevBlock
-        : DEFAULT_SMC_OPTIONS.obRequirePrevBlock,
+    obSearchAtSweep:
+      typeof obj.obSearchAtSweep === 'boolean'
+        ? obj.obSearchAtSweep
+        : DEFAULT_SMC_OPTIONS.obSearchAtSweep,
+    obSearchAtFvg:
+      typeof obj.obSearchAtFvg === 'boolean'
+        ? obj.obSearchAtFvg
+        : DEFAULT_SMC_OPTIONS.obSearchAtFvg,
+    obSearchAtPrevBlock:
+      typeof obj.obSearchAtPrevBlock === 'boolean'
+        ? obj.obSearchAtPrevBlock
+        : DEFAULT_SMC_OPTIONS.obSearchAtPrevBlock,
   };
 }
 

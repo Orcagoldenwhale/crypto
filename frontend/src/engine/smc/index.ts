@@ -84,15 +84,21 @@ export function runSmcAnalysis(
 
   // OB всегда считаем если нужен сам слой ИЛИ нужны BB (они строятся из OB).
   const needsOb = layers.orderBlocks || layers.breakerBlocks;
-  // Для контекстного фильтра "OB на снятии ликвидности" нужны swing-зоны.
-  // Используем liquidityRaw если он уже есть (если liquidity-слой включён),
-  // иначе считаем отдельно — фильтр всё равно требует данные.
-  const liquidityForOb = options.obRequireSweep && needsOb
+  // Для аддитивных контекстов searchAtSweep / searchAtFvg нужны зоны
+  // ликвидности и FVG. Если соответствующие слои выключены — считаем
+  // их отдельно (на лету). Это короткий вычислительный путь.
+  const liquidityForOb = needsOb && options.obSearchAtSweep
     ? (liquidityRaw.length > 0 ? liquidityRaw : findLiquidityZones(candles, {
         lookback: options.lookback,
         equalityTolerancePct: options.equalityTolerancePct,
       }))
     : liquidityRaw;
+  const fvgForOb = needsOb && options.obSearchAtFvg
+    ? (fvgs.length > 0 ? fvgs : findFVGs(candles, {
+        maxFillPct: options.fvgMaxFillPct,
+        minFvgPct: options.minFvgPct,
+      }))
+    : fvgs;
   const orderBlocksRaw = needsOb
     ? detectOrderBlocks(candles, allBreaks, {
         extraction: options.obExtraction,
@@ -100,10 +106,11 @@ export function runSmcAnalysis(
         requireAbsorption: options.obRequireAbsorption,
         allowMultiCandle: options.obAllowMultiCandle,
         multiCandleMax: options.obMultiCandleMax,
-        requireFvg: options.obRequireFvg,
-        requireSweep: options.obRequireSweep,
-        requirePrevBlock: options.obRequirePrevBlock,
+        searchAtSweep: options.obSearchAtSweep,
+        searchAtFvg: options.obSearchAtFvg,
+        searchAtPrevBlock: options.obSearchAtPrevBlock,
         liquidityZones: liquidityForOb,
+        fvgZones: fvgForOb,
       })
     : [];
   const orderBlocks = layers.orderBlocks

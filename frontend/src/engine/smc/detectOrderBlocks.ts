@@ -19,7 +19,7 @@
  */
 
 import type { Candle1h, Candle15m, Candle5m } from '@/types';
-import type { LiquidityZone, ObExtractionMode, OrderBlockZone, StructureBreak } from './types';
+import type { FvgZone, LiquidityZone, ObExtractionMode, OrderBlockZone, StructureBreak } from './types';
 
 interface OhlcCandle {
   timestamp: number;
@@ -55,16 +55,18 @@ export interface DetectOrderBlocksOptions {
   allowMultiCandle?: boolean;
   /** Максимальная длина multi-candle OB. По умолчанию 3. */
   multiCandleMax?: number;
-  // ============== Контекстные фильтры (лекция OB §3) ==============
-  /**
-   * Только OB на снятии ликвидности: OB-свеча должна пробивать
-   * swing-уровень (для bull OB — пробить SSL low, для bear — BSL high).
-   */
-  requireSweep?: boolean;
-  /** Только OB на тесте предыдущего OB (фрактальная вложенность). */
-  requirePrevBlock?: boolean;
-  /** Список ликвидных зон (нужен для requireSweep). */
+  // ============== Аддитивные контексты (лекция OB §3) ==============
+  // Каждый тоггл добавляет ещё один проход обнаружения OB поверх базового.
+  /** Также искать OB при snake of liquidity (по sweep-событиям). */
+  searchAtSweep?: boolean;
+  /** Также искать OB при тесте FVG. */
+  searchAtFvg?: boolean;
+  /** Также искать OB при тесте предыдущего OB. */
+  searchAtPrevBlock?: boolean;
+  /** Список ликвидных зон (нужен для searchAtSweep). */
   liquidityZones?: readonly LiquidityZone[];
+  /** Список FVG (нужен для searchAtFvg). */
+  fvgZones?: readonly FvgZone[];
 }
 
 export function detectOrderBlocks(
@@ -72,17 +74,20 @@ export function detectOrderBlocks(
   breaks: readonly StructureBreak[],
   options: DetectOrderBlocksOptions = {},
 ): OrderBlockZone[] {
-  if (candles.length === 0 || breaks.length === 0) return [];
+  // Раньше тут было `breaks.length === 0 → return []`, но теперь у нас есть
+  // аддитивные контекстные проходы (sweep/FVG/prev-OB) которые не требуют
+  // структурных пробоев. Поэтому возвращаемся пустым ТОЛЬКО когда нет ни
+  // свечей, ни одного включённого контекста.
+  if (candles.length === 0) return [];
+  const hasContextScan = options.searchAtSweep || options.searchAtFvg || options.searchAtPrevBlock;
+  if (breaks.length === 0 && !hasContextScan) return [];
   const arr = candles as readonly OhlcCandle[];
   const lastTime = arr[arr.length - 1]!.timestamp;
 
   const out: OrderBlockZone[] = [];
-  // Хранит все OB-кандидаты (даже отброшенные фильтром requirePrevBlock),
-  // чтобы фильтр работал по полному списку предыдущих блоков, а не только
-  // по уже прошедшим. Иначе первый OB без предка отбрасывает всю цепочку.
-  const allCandidates: { obTime: number; minPrice: number; maxPrice: number }[] = [];
   // Дедуп по «отправной» свече и направлению — чтобы серия BOS'ов не
-  // плодила копии одного и того же OB.
+  // плодила копии одного и того же OB. Также используется аддитивными
+  // контекстными проходами через mergeContextOb.
   const seen = new Set<string>();
 
   for (const sb of breaks) {
@@ -107,21 +112,8 @@ export function detectOrderBlocks(
     const kind: OrderBlockZone['kind'] = sb.dir === 'up' ? 'bull' : 'bear';
     const extraction = options.extraction ?? 'wicks';
 
-    // ===== Контекстные фильтры из лекции OB §3 =====
-    // Применяются по схеме AND: если несколько включены — должны выполниться все.
-    if (options.requireSweep) {
-      if (!candleSweepsLiquidity(ob, kind, options.liquidityZones ?? [])) continue;
-    }
-    if (options.requirePrevBlock) {
-      // Используем allCandidates (а не out) — иначе фильтр инвалидировал бы
-      // самый ранний OB и обрывал бы всю цепочку.
-      if (!candleInsidePrevOb(ob, allCandidates)) {
-        // Всё равно регистрируем как кандидата для последующих проверок.
-        allCandidates.push({ obTime: ob.timestamp, minPrice: ob.low, maxPrice: ob.high });
-        continue;
-      }
-    }
-    allCandidates.push({ obTime: ob.timestamp, minPrice: ob.low, maxPrice: ob.high });
+    // (Контекст формирования — sweep/FVG/prev-OB — теперь обрабатывается
+    // отдельными аддитивными проходами ниже после основного BOS-цикла.)
 
     // Multi-candle OB: расширяем цепочкой однонаправленных свеч назад от obIdx,
     // пока они той же полярности и не дальше multiCandleMax от obIdx.
@@ -193,6 +185,27 @@ export function detectOrderBlocks(
       unmitigated: mit === null,
       breakKind: sb.kind,
     });
+  }
+
+  // ===== Аддитивные контексты (лекция OB §3) =====
+  // Каждый контекст ищет OB-кандидатов независимо от BOS и добавляет
+  // их в общий список. Дедуп — по (kind, obTime).
+  const extraction = options.extraction ?? 'wicks';
+  if (options.searchAtSweep && options.liquidityZones?.length) {
+    for (const cand of contextScanSweep(arr, options.liquidityZones)) {
+      mergeContextOb(arr, cand, extraction, out, seen, lastTime, options);
+    }
+  }
+  if (options.searchAtFvg && options.fvgZones?.length) {
+    for (const cand of contextScanFvgTest(arr, options.fvgZones)) {
+      mergeContextOb(arr, cand, extraction, out, seen, lastTime, options);
+    }
+  }
+  if (options.searchAtPrevBlock && out.length > 0) {
+    // Используем УЖЕ найденные OB как "предыдущие" блоки для теста.
+    for (const cand of contextScanPrevOb(arr, out)) {
+      mergeContextOb(arr, cand, extraction, out, seen, lastTime, options);
+    }
   }
 
   // Стабильный порядок по startTime — упростит дальнейшую фильтрацию.
@@ -390,43 +403,185 @@ function checkAbsorption(
   return false;
 }
 
+// (Хелперы candleSweepsLiquidity / candleInsidePrevOb удалены —
+// они использовались старой фильтрующей логикой "requireSweep/PrevBlock".
+// Теперь sweep и prev-block работают как АДДИТИВНЫЕ контексты ниже.)
+
+// ============================================================================
+// Аддитивные контексты обнаружения OB (sweep / FVG-test / prev-OB-test)
+// ============================================================================
+
 /**
- * Проверяет, "снимает" ли OB-свеча ликвидность:
- *   bull OB (нисходящая свеча перед импульсом вверх) — её low должен
- *     пробить SSL (low-liquidity), сформированную ДО этой свечи.
- *   bear OB — её high должен пробить BSL (high-liquidity).
+ * Кандидат OB из контекстного прохода: индекс OB-свечи + направление
+ * ожидаемого импульса. Дальше через mergeContextOb превращается в полноценный
+ * OrderBlockZone с теми же mitigation/MT правилами что у BOS-based OB.
  */
-function candleSweepsLiquidity(
-  c: OhlcCandle,
-  kind: 'bull' | 'bear',
+interface ContextObCandidate {
+  obIdx: number;
+  kind: 'bull' | 'bear';
+  /** Время "триггера" — sweep/FVG-test/prev-OB-test (заменяет breakTime). */
+  triggerIdx: number;
+}
+
+/** Окна (в свечах) для контекстного поиска. */
+const CTX_LOOKBACK = 5;       // как далеко назад от триггера ищем OB-свечу
+const CTX_IMPULSE_AHEAD = 3;  // сколько свечей вперёд требуем для подтверждения
+const CTX_IMPULSE_CONSEC = 2; // минимум подряд закрывающихся в нужную сторону
+
+function contextScanSweep(
+  arr: readonly OhlcCandle[],
   zones: readonly LiquidityZone[],
-): boolean {
+): ContextObCandidate[] {
+  const out: ContextObCandidate[] = [];
   for (const z of zones) {
-    if (z.startTime >= c.timestamp) continue;
-    if (kind === 'bull') {
-      // SSL = low-liquidity. Свеча проколола её снизу: low <= price.
-      if (z.kind === 'low' && c.low <= z.price) return true;
-    } else {
-      // BSL = high-liquidity. Свеча проколола сверху: high >= price.
-      if (z.kind === 'high' && c.high >= z.price) return true;
-    }
+    if (z.sweep === null) continue;
+    const sweepIdx = findIndexByTime(arr, z.sweep.time);
+    if (sweepIdx < 0) continue;
+    // Снятие SSL (kind=low) → ожидаем импульс вверх → ищем bull-OB.
+    // Снятие BSL (kind=high) → импульс вниз → bear-OB.
+    const expectedDir: 'up' | 'down' = z.kind === 'low' ? 'up' : 'down';
+    const cand = pickContextOb(arr, sweepIdx, expectedDir);
+    if (cand !== null) out.push(cand);
   }
-  return false;
+  return out;
+}
+
+function contextScanFvgTest(
+  arr: readonly OhlcCandle[],
+  fvgs: readonly FvgZone[],
+): ContextObCandidate[] {
+  const out: ContextObCandidate[] = [];
+  for (const fvg of fvgs) {
+    const startIdx = findFirstIndexAtOrAfter(arr, fvg.startTime);
+    if (startIdx < 0) continue;
+    // Первое касание FVG после её формирования.
+    let touchIdx = -1;
+    for (let k = startIdx + 1; k < arr.length; k++) {
+      const c = arr[k]!;
+      const touched = fvg.kind === 'bull'
+        ? c.low <= fvg.maxPrice
+        : c.high >= fvg.minPrice;
+      if (touched) { touchIdx = k; break; }
+    }
+    if (touchIdx < 0) continue;
+    // bull-FVG (gap up) → тест сверху-вниз → ожидаем продолжение вверх → bull-OB.
+    // bear-FVG → продолжение вниз → bear-OB.
+    const expectedDir: 'up' | 'down' = fvg.kind === 'bull' ? 'up' : 'down';
+    const cand = pickContextOb(arr, touchIdx, expectedDir);
+    if (cand !== null) out.push(cand);
+  }
+  return out;
+}
+
+function contextScanPrevOb(
+  arr: readonly OhlcCandle[],
+  priors: readonly OrderBlockZone[],
+): ContextObCandidate[] {
+  const out: ContextObCandidate[] = [];
+  for (const prev of priors) {
+    const startIdx = findFirstIndexAtOrAfter(arr, prev.startTime);
+    if (startIdx < 0) continue;
+    let touchIdx = -1;
+    for (let k = startIdx + 1; k < arr.length; k++) {
+      const c = arr[k]!;
+      // Цена вернулась внутрь зоны (любым краем).
+      if (c.high < prev.minPrice || c.low > prev.maxPrice) continue;
+      touchIdx = k; break;
+    }
+    if (touchIdx < 0) continue;
+    // Bull OB → ждём отскока вверх → новый bull-OB. Bear OB → bear-OB.
+    const expectedDir: 'up' | 'down' = prev.kind === 'bull' ? 'up' : 'down';
+    const cand = pickContextOb(arr, touchIdx, expectedDir);
+    if (cand !== null) out.push(cand);
+  }
+  return out;
 }
 
 /**
- * Проверяет, попадает ли диапазон OB-свечи внутрь ранее сформированного OB.
- * Используется для фильтра "OB на тесте предыдущего блока".
+ * Универсальный поиск OB-свечи относительно триггера:
+ *   1. Смотрим назад до CTX_LOOKBACK свечей, находим ближайшую к триггеру
+ *      противонаправленную (для expectedDir='up' это bearish).
+ *   2. Подтверждаем импульсом вперёд: CTX_IMPULSE_CONSEC подряд закрывающихся
+ *      в expectedDir свеч в пределах CTX_IMPULSE_AHEAD.
  */
-function candleInsidePrevOb(
-  c: OhlcCandle,
-  priorObs: readonly { obTime: number; minPrice: number; maxPrice: number }[],
-): boolean {
-  for (const prev of priorObs) {
-    if (prev.obTime >= c.timestamp) continue;
-    // Пересекаются ли диапазоны [c.low, c.high] и [prev.minPrice, prev.maxPrice]?
-    if (c.high < prev.minPrice || c.low > prev.maxPrice) continue;
-    return true;
+function pickContextOb(
+  arr: readonly OhlcCandle[],
+  triggerIdx: number,
+  expectedDir: 'up' | 'down',
+): ContextObCandidate | null {
+  let obIdx = -1;
+  const from = Math.max(0, triggerIdx - CTX_LOOKBACK);
+  for (let i = triggerIdx; i >= from; i--) {
+    const c = arr[i]!;
+    const opposite = expectedDir === 'up' ? c.close < c.open : c.close > c.open;
+    if (opposite) { obIdx = i; break; }
   }
-  return false;
+  if (obIdx < 0) return null;
+
+  // Подтверждение импульса.
+  let consec = 0;
+  let confirmed = false;
+  const ahead = Math.min(arr.length, triggerIdx + 1 + CTX_IMPULSE_AHEAD);
+  for (let j = triggerIdx + 1; j < ahead; j++) {
+    const c = arr[j]!;
+    const sameDir = expectedDir === 'up' ? c.close > c.open : c.close < c.open;
+    if (sameDir) {
+      consec++;
+      if (consec >= CTX_IMPULSE_CONSEC) { confirmed = true; break; }
+    } else {
+      consec = 0;
+    }
+  }
+  if (!confirmed) return null;
+
+  const kind: 'bull' | 'bear' = expectedDir === 'up' ? 'bull' : 'bear';
+  return { obIdx, kind, triggerIdx };
+}
+
+/**
+ * Конвертирует ContextObCandidate в полноценный OrderBlockZone и
+ * добавляет в `out`, если такой ещё не зарегистрирован (dedup по
+ * (kind, obTime)).
+ */
+function mergeContextOb(
+  arr: readonly OhlcCandle[],
+  cand: ContextObCandidate,
+  extraction: ObExtractionMode,
+  out: OrderBlockZone[],
+  seen: Set<string>,
+  lastTime: number,
+  _options: DetectOrderBlocksOptions,
+): void {
+  const ob = arr[cand.obIdx]!;
+  const key = `${cand.kind}-${ob.timestamp}`;
+  if (seen.has(key)) return;
+  seen.add(key);
+
+  const bounds = extractObBounds(ob, extraction);
+  const mtPrice = (ob.open + ob.close) / 2;
+  // Mitigation от триггер-свечи (а не break — её здесь нет).
+  const mit = findMitigation(arr, cand.triggerIdx + 1, cand.kind, bounds.minPrice, bounds.maxPrice);
+
+  out.push({
+    id: `ob-ctx-${cand.kind}-${ob.timestamp}`,
+    kind: cand.kind,
+    obTime: ob.timestamp,
+    // startTime для контекстного OB = время триггера (когда зона "включилась").
+    startTime: arr[cand.triggerIdx]!.timestamp,
+    endTime: mit !== null ? mit : lastTime,
+    minPrice: bounds.minPrice,
+    maxPrice: bounds.maxPrice,
+    mtPrice,
+    openPrice: ob.open,
+    hasFvg: false,
+    unmitigated: mit === null,
+    breakKind: 'BOS', // отметка — не настоящий BOS, но поле обязательное
+  });
+}
+
+function findFirstIndexAtOrAfter(arr: readonly OhlcCandle[], time: number): number {
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i]!.timestamp >= time) return i;
+  }
+  return -1;
 }

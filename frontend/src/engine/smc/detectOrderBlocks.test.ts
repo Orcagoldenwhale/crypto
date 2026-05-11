@@ -248,59 +248,51 @@ describe('detectOrderBlocks', () => {
     expect(multi[0]!.obTime).toBe(t(1));
   });
 
-  it('requireSweep: отбрасывает OB без снятия ликвидности', () => {
+  it('searchAtSweep: ДОБАВЛЯЕТ OB по sweep даже без BOS', () => {
+    // bearish OB-кандидат: bullish свеча t(2), затем bearish импульс t(3..4).
+    // sweep в t(2) пробивает BSL — должен породить bear-OB.
     const candles: Candle15m[] = [
-      bar(t(0), 8, 9, 7, 9),
-      bar(t(1), 9, 9.5, 8, 9.5),
-      bar(t(2), 9.5, 10, 9, 9.8),
-      bar(t(3), 9.8, 9.9, 8.5, 8.5),   // bull OB candle, low=8.5
-      bar(t(4), 8.5, 9.5, 8.4, 9.5),
-      bar(t(5), 9.5, 11.5, 9.4, 11),    // BOS↑ (close > 10)
-      bar(t(6), 11, 12, 10.5, 11.5),
+      bar(t(0), 100, 105, 99, 104),
+      bar(t(1), 104, 106, 103, 105),
+      bar(t(2), 105, 112, 104, 110),  // OB candidate (bullish), wick=112
+      bar(t(3), 110, 110, 105, 106),  // bearish #1
+      bar(t(4), 106, 107, 102, 103),  // bearish #2 → подтверждение
     ];
-    const breaks: StructureBreak[] = [
-      { id: 'b', kind: 'BOS', dir: 'up', level: 10, levelTime: t(2), breakTime: t(5), retestTime: null },
-    ];
+    // Базовый прогон без контекстов — никаких OB (нет breaks).
+    expect(detectOrderBlocks(candles, [], {})).toEqual([]);
 
-    // Без ликвидности — фильтр должен отбросить OB.
-    const withoutSweep = detectOrderBlocks(candles, breaks, {
-      requireSweep: true,
-      liquidityZones: [],
-    });
-    expect(withoutSweep).toEqual([]);
-
-    // С ликвидностью: SSL на 9.0 — OB-свеча low=8.5 пробивает её. Должен пройти.
+    // С sweep-контекстом и ликвидностью на 110 (BSL) — OB должен появиться.
     const liq = [
-      { id: 'l', kind: 'low' as const, price: 9.0, startTime: t(0), endTime: t(2), touches: 2, sweep: null, position: 'external' as const },
+      { id: 'l', kind: 'high' as const, price: 110, startTime: t(0), endTime: t(1), touches: 2,
+        sweep: { time: t(2), priceExtreme: 112 }, position: 'external' as const },
     ];
-    const withSweep = detectOrderBlocks(candles, breaks, {
-      requireSweep: true,
+    const withCtx = detectOrderBlocks(candles, [], {
+      searchAtSweep: true,
       liquidityZones: liq,
     });
-    expect(withSweep).toHaveLength(1);
+    expect(withCtx.length).toBeGreaterThanOrEqual(1);
+    expect(withCtx[0]!.kind).toBe('bear');
   });
 
-  it('requirePrevBlock: OB должен попасть в зону ранее сформированного OB', () => {
-    // 2 BOS подряд: первый порождает OB1, второй — OB2.
-    // OB2-свеча должна попасть в OB1 для прохождения фильтра.
+  it('searchAtPrevBlock: ДОБАВЛЯЕТ OB на ретесте ранее найденного OB', () => {
+    // BOS даёт OB1, затем цена возвращается в OB1 и формирует новый OB2.
     const candles: Candle15m[] = [
       bar(t(0), 8, 9, 7, 9),
       bar(t(1), 9, 9.5, 8, 9.5),
       bar(t(2), 9.5, 10, 9, 9.8),
-      bar(t(3), 9.8, 9.9, 8.5, 8.5),    // OB1 candle [8.5..9.9]
+      bar(t(3), 9.8, 9.9, 8.5, 8.5),  // OB1 candle [8.5..9.9]
       bar(t(4), 8.5, 9.5, 8.4, 9.5),
-      bar(t(5), 9.5, 11.5, 9.4, 11),    // break↑ #1 → OB1
-      bar(t(6), 11, 12, 10.5, 11.5),
-      bar(t(7), 11.5, 11.6, 9, 9.2),    // OB2 candle low=9, попадает в OB1 [8.5..9.9]
-      bar(t(8), 9.2, 13, 9, 12.5),      // break↑ #2 → OB2
+      bar(t(5), 9.5, 11.5, 9.4, 11),   // BOS↑
+      bar(t(6), 11, 11, 9.5, 9.5),     // возврат в OB1 (low=9.5 <= 9.9)
+      bar(t(7), 9.5, 12, 9.5, 11.8),   // bull импульс #1
+      bar(t(8), 11.8, 13, 11, 12.5),   // bull импульс #2 → подтверждение
     ];
     const breaks: StructureBreak[] = [
       { id: 'b1', kind: 'BOS', dir: 'up', level: 10, levelTime: t(2), breakTime: t(5), retestTime: null },
-      { id: 'b2', kind: 'BOS', dir: 'up', level: 12, levelTime: t(6), breakTime: t(8), retestTime: null },
     ];
-    const filtered = detectOrderBlocks(candles, breaks, { requirePrevBlock: true });
-    // OB1 не имеет предыдущего → отброшен. OB2 попадает в OB1 → проходит.
-    expect(filtered).toHaveLength(1);
-    expect(filtered[0]!.obTime).toBe(t(7));
+    const baseline = detectOrderBlocks(candles, breaks);
+    const additive = detectOrderBlocks(candles, breaks, { searchAtPrevBlock: true });
+    // Аддитивный режим должен дать строго больше OB.
+    expect(additive.length).toBeGreaterThan(baseline.length);
   });
 });

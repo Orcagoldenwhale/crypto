@@ -229,21 +229,25 @@ export interface SmcOptions {
   obMultiCandleMax: number;
 
   // ============== Контекст формирования OB (лекция OB §3) ==============
+  // Все три тоггла АДДИТИВНЫ: при включении добавляют ещё один путь
+  // обнаружения OB к базовому (BOS/CHoCH). Можно комбинировать.
   /**
-   * Только OB на снятии ликвидности: OB-свеча должна пробивать
-   * swing-уровень (BSL для bear OB, SSL для bull OB) из liquidityZones.
+   * Также искать OB на снятии ликвидности: для каждого sweep-события
+   * (LiquidityZone с непустым sweep) ищем последнюю противонаправленную
+   * свечу и подтверждаем импульсом в обратную сторону.
    */
-  obRequireSweep: boolean;
+  obSearchAtSweep: boolean;
   /**
-   * Только Strong OB (с FVG): между OB-свечой и break-свечой должен
-   * быть 3-свечный gap. Использует существующий флаг `hasFvg`.
+   * Также искать OB при тесте FVG: для каждого касания unmitigated FVG
+   * после её формирования ищем OB-свечу + импульс продолжения движения,
+   * породившего FVG.
    */
-  obRequireFvg: boolean;
+  obSearchAtFvg: boolean;
   /**
-   * Только OB на тесте предыдущего OB: OB-свеча должна попадать в
-   * диапазон ранее сформированного OB (фрактальная вложенность блоков).
+   * Также искать OB при тесте предыдущего OB: для каждого возврата
+   * цены в ранее сформированный unmitigated OB ищем новый OB на ретесте.
    */
-  obRequirePrevBlock: boolean;
+  obSearchAtPrevBlock: boolean;
 }
 
 /** Видимость каждого слоя (тогглы из Toolbox). */
@@ -307,9 +311,9 @@ export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
   liqCompressionMinPoints: 3,
   obAllowMultiCandle: false,
   obMultiCandleMax: 3,
-  obRequireSweep: false,
-  obRequireFvg: false,
-  obRequirePrevBlock: false,
+  obSearchAtSweep: false,
+  obSearchAtFvg: false,
+  obSearchAtPrevBlock: false,
 });
 
 export const DEFAULT_SMC_LAYERS: SmcLayers = Object.freeze({

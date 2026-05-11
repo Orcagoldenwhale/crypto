@@ -278,26 +278,30 @@ export function SmcSettingsPopover({
 
                 <div className="border-t border-tv-border/40 pt-2">
                   <p className="mb-1 text-[10px] uppercase tracking-wider text-tv-text-muted">
-                    Контекст формирования (лекция §3)
+                    Также искать OB в этих зонах (лекция §3)
+                  </p>
+                  <p className="mb-2 text-[10px] text-tv-text-muted">
+                    Кроме BOS/CHoCH — каждый тоггл добавляет ещё один проход
+                    обнаружения OB. Помогает не пропускать блоки.
                   </p>
                   <div className="flex flex-col gap-2">
                     <CheckboxRow
-                      label="Только OB на снятии ликвидности"
-                      hint="OB-свеча должна пробивать swing-уровень (SSL/BSL)"
-                      checked={options.obRequireSweep}
-                      onChange={(v) => setField('obRequireSweep', v)}
+                      label="На снятии ликвидности (sweep)"
+                      hint="для каждого sweep swing-уровня ищем OB + импульс разворота"
+                      checked={options.obSearchAtSweep}
+                      onChange={(v) => setField('obSearchAtSweep', v)}
                     />
                     <CheckboxRow
-                      label="Только Strong OB (с FVG)"
-                      hint="между OB и break-свечой должен быть Fair Value Gap"
-                      checked={options.obRequireFvg}
-                      onChange={(v) => setField('obRequireFvg', v)}
+                      label="На тесте FVG (ребаланс)"
+                      hint="при возврате цены в FVG — OB + импульс продолжения"
+                      checked={options.obSearchAtFvg}
+                      onChange={(v) => setField('obSearchAtFvg', v)}
                     />
                     <CheckboxRow
-                      label="Только OB на тесте предыдущего OB"
-                      hint="OB-свеча должна попадать в диапазон ранее сформированного OB"
-                      checked={options.obRequirePrevBlock}
-                      onChange={(v) => setField('obRequirePrevBlock', v)}
+                      label="На тесте предыдущего OB"
+                      hint="при возврате цены в ранее сформированный OB — новый OB на ретесте"
+                      checked={options.obSearchAtPrevBlock}
+                      onChange={(v) => setField('obSearchAtPrevBlock', v)}
                     />
                   </div>
                 </div>
