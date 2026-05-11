@@ -70,6 +70,16 @@ export function BacktestPanel({ onRun, report, running }: BacktestPanelProps) {
               />
             </SettingRow>
 
+            <SettingRow label="Мин. FVG (%)" title="Мин. размер FVG в % от цены. Мелкие гэпы игнорируются">
+              <NumberInput
+                value={settings.minFvgPct}
+                min={0}
+                max={5}
+                step={0.05}
+                onChange={(v) => update('minFvgPct', v)}
+              />
+            </SettingRow>
+
             <SettingRow label="Макс. тело (%)" title="Макс. размер тела сигнальной свечи в % от цены. 0 = без ограничения">
               <NumberInput
                 value={settings.maxCandleBodyPct}

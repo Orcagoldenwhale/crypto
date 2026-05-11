@@ -17,6 +17,8 @@ export interface BacktestSettings {
   fvgMaxFillPct: number;
   /** Макс. размер тела сигнальной свечи в % от цены. 0 = без ограничения. */
   maxCandleBodyPct: number;
+  /** Мин. размер FVG в % от цены. FVG меньше этого порога игнорируются. */
+  minFvgPct: number;
 }
 
 export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
@@ -26,6 +28,7 @@ export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
   maxReentries: 1,
   fvgMaxFillPct: 50,
   maxCandleBodyPct: 1,
+  minFvgPct: 0.1,
 };
 
 /** Одна сделка бэктеста. */
