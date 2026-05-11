@@ -118,6 +118,7 @@ export function runBacktest(
   const trades: BacktestTrade[] = [];
   const zoneEntryCount = new Map<string, number>();
   const zoneFillMax = new Map<string, number>();
+  const log: string[] = [];
   const fmt = (ts: number) => new Date(ts).toISOString().slice(5, 16).replace('T', ' ');
 
   for (let i = 0; i < candles.length; i++) {
@@ -139,7 +140,7 @@ export function runBacktest(
     const bodyPct = (Math.abs(candle.close - candle.open) / candle.close) * 100;
 
     if (settings.maxCandleBodyPct > 0 && bodyPct > settings.maxCandleBodyPct) {
-      console.log(`[BT] ${ts} ${check.type} SKIP body=${bodyPct.toFixed(3)}% > max=${settings.maxCandleBodyPct}%  C=${candle.close}`);
+      log.push(`[BT] ${ts} ${check.type} SKIP body=${bodyPct.toFixed(3)}% > max=${settings.maxCandleBodyPct}%  C=${candle.close}`);
       continue;
     }
 
@@ -149,40 +150,40 @@ export function runBacktest(
 
       if (zone.fvgKind !== null) {
         if (zone.fvgKind === 'bull' && check.type !== 'LONG') {
-          console.log(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bull FVG, need LONG)`);
+          log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bull FVG, need LONG)`);
           continue;
         }
         if (zone.fvgKind === 'bear' && check.type !== 'SHORT') {
-          console.log(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bear FVG, need SHORT)`);
+          log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bear FVG, need SHORT)`);
           continue;
         }
         const fvgHeight = zone.fvgMaxPrice - zone.fvgMinPrice;
         const fvgPct = (fvgHeight / zone.fvgMinPrice) * 100;
         if (settings.minFvgPct > 0 && fvgPct < settings.minFvgPct) {
-          console.log(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=fvg_too_small (${fvgPct.toFixed(3)}% < ${settings.minFvgPct}%)`);
+          log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=fvg_too_small (${fvgPct.toFixed(3)}% < ${settings.minFvgPct}%)`);
           continue;
         }
         const maxFill = zoneFillMax.get(zone.id) ?? 0;
         if (maxFill > settings.fvgMaxFillPct) {
-          console.log(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=fvg_filled (${maxFill.toFixed(1)}% > ${settings.fvgMaxFillPct}%)`);
+          log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=fvg_filled (${maxFill.toFixed(1)}% > ${settings.fvgMaxFillPct}%)`);
           continue;
         }
       }
 
       if (zone.obKind !== null) {
         if (zone.obKind === 'bull' && check.type !== 'LONG') {
-          console.log(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bull OB, need LONG)`);
+          log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bull OB, need LONG)`);
           continue;
         }
         if (zone.obKind === 'bear' && check.type !== 'SHORT') {
-          console.log(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bear OB, need SHORT)`);
+          log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bear OB, need SHORT)`);
           continue;
         }
       }
 
       const count = zoneEntryCount.get(zone.id) ?? 0;
       if (count > settings.maxReentries) {
-        console.log(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=max_reentries (${count} > ${settings.maxReentries})`);
+        log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=max_reentries (${count} > ${settings.maxReentries})`);
         continue;
       }
 
@@ -245,7 +246,7 @@ export function runBacktest(
         }
       }
 
-      console.log(`[BT] ${ts} ${type} ENTRY zone=${zone.id} entry=${entryPrice.toFixed(2)} SL=${stopPrice.toFixed(2)} TP=${takePrice.toFixed(2)} → ${outcome} ${pnlR >= 0 ? '+' : ''}${pnlR.toFixed(1)}R`);
+      log.push(`[BT] ${ts} ${type} ENTRY zone=${zone.id} entry=${entryPrice.toFixed(2)} SL=${stopPrice.toFixed(2)} TP=${takePrice.toFixed(2)} → ${outcome} ${pnlR >= 0 ? '+' : ''}${pnlR.toFixed(1)}R`);
 
       const tradeId = `${zone.id}::${candle.timestamp}::${type}::${count}`;
       trades.push({
@@ -271,7 +272,7 @@ export function runBacktest(
     }
 
     if (!matched) {
-      console.log(`[BT] ${ts} ${check.type} NO_ZONE C=${candle.close.toFixed(2)} body=${bodyPct.toFixed(3)}%`);
+      log.push(`[BT] ${ts} ${check.type} NO_ZONE C=${candle.close.toFixed(2)} body=${bodyPct.toFixed(3)}%`);
     }
 
     for (const zone of zones) {
@@ -299,6 +300,10 @@ export function runBacktest(
       currentStreak = 0;
     }
   }
+
+  console.groupCollapsed(`[BT] Backtest: ${trades.length} trades, ${wins}W/${losses}L, ${totalPnlR >= 0 ? '+' : ''}${totalPnlR.toFixed(1)}R  (${log.length} log entries)`);
+  for (const line of log) console.log(line);
+  console.groupEnd();
 
   return {
     totalTrades: trades.length,
