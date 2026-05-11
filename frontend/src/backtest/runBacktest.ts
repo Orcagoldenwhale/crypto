@@ -9,11 +9,11 @@ export interface SmcZoneRect {
   endTime: TimestampMs;
   minPrice: Price;
   maxPrice: Price;
-  /** 'fvg-bull' | 'fvg-bear' | null — для трекинга заполнения FVG. */
   fvgKind: 'bull' | 'bear' | null;
-  /** Оригинальные границы FVG (до gap-расширения) — для расчёта % заполнения. */
   fvgMinPrice: Price;
   fvgMaxPrice: Price;
+  /** bull OB → LONG only, bear OB → SHORT only, null → без ограничения. */
+  obKind: 'bull' | 'bear' | null;
 }
 
 /**
@@ -36,6 +36,7 @@ export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRe
       fvgKind: fvg.kind,
       fvgMinPrice: fvg.minPrice,
       fvgMaxPrice: fvg.maxPrice,
+      obKind: null,
     });
   }
 
@@ -51,6 +52,7 @@ export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRe
       fvgKind: null,
       fvgMinPrice: 0,
       fvgMaxPrice: 0,
+      obKind: null,
     });
   }
 
@@ -66,6 +68,7 @@ export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRe
       fvgKind: null,
       fvgMinPrice: 0,
       fvgMaxPrice: 0,
+      obKind: ob.kind,
     });
   }
 
@@ -81,6 +84,7 @@ export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRe
       fvgKind: null,
       fvgMinPrice: 0,
       fvgMaxPrice: 0,
+      obKind: null,
     });
   }
 
@@ -138,6 +142,11 @@ export function runBacktest(
         if (zone.fvgKind === 'bear' && check.type !== 'SHORT') continue;
         const maxFill = zoneFillMax.get(zone.id) ?? 0;
         if (maxFill > settings.fvgMaxFillPct) continue;
+      }
+
+      if (zone.obKind !== null) {
+        if (zone.obKind === 'bull' && check.type !== 'LONG') continue;
+        if (zone.obKind === 'bear' && check.type !== 'SHORT') continue;
       }
 
       const count = zoneEntryCount.get(zone.id) ?? 0;
