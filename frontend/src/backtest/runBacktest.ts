@@ -119,7 +119,11 @@ export function runBacktest(
   const zoneEntryCount = new Map<string, number>();
   const zoneFillMax = new Map<string, number>();
   const log: string[] = [];
-  const fmt = (ts: number) => new Date(ts).toISOString().slice(5, 16).replace('T', ' ');
+  const fmt = (ts: number) => {
+    const d = new Date(ts);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
 
   for (let i = 0; i < candles.length; i++) {
     const candle = candles[i]!;
@@ -301,7 +305,9 @@ export function runBacktest(
     }
   }
 
-  const header = `Backtest: ${trades.length} trades, ${wins}W/${losses}L, ${totalPnlR >= 0 ? '+' : ''}${totalPnlR.toFixed(1)}R\nSettings: ${JSON.stringify(settings)}\nZones: ${zones.length}\n${'='.repeat(80)}`;
+  const first = candles.length > 0 ? fmt(candles[0]!.timestamp) : '?';
+  const last = candles.length > 0 ? fmt(candles[candles.length - 1]!.timestamp) : '?';
+  const header = `Backtest @ ${new Date().toISOString()}: ${trades.length} trades, ${wins}W/${losses}L, ${totalPnlR >= 0 ? '+' : ''}${totalPnlR.toFixed(1)}R\nSettings: ${JSON.stringify(settings)}\nZones: ${zones.length}\nCandles: ${candles.length} (${first} … ${last})\n${'='.repeat(80)}`;
   const logText = header + '\n' + log.join('\n');
   try {
     fetch('/api/bt-log', {
