@@ -1,4 +1,23 @@
-import { useState } from 'react';
+/**
+ * Панель настроек бэктеста — докнута к правому верху графика.
+ *
+ * Структура:
+ *   - Шапка с тогглом сворачивания.
+ *   - Секции настроек (Section) — каждая со своим заголовком и группой параметров.
+ *     Добавить новую настройку = бросить ещё одну строку в нужную секцию.
+ *     Добавить новую секцию = новый <Section title="..."> блок.
+ *   - Кнопка "Запустить".
+ *   - Отчёт (если есть).
+ *
+ * Секции:
+ *   1. Управление риском — стоп, reward, SL за фитилём.
+ *   2. Зоны и фильтры   — gap зоны, мин. FVG, макс. тело сигнальной.
+ *   3. Перезаходы       — maxReentries, reentryAfterWin, validityByMt.
+ *   4. Точка входа      — entryPoint (Close / Open / MT / Wick).
+ *   5. Диагностика      — debug log.
+ */
+
+import { useState, type ReactNode } from 'react';
 import { Play, Settings2, ChevronUp, ChevronDown } from 'lucide-react';
 import type { BacktestSettings, BacktestReport } from '@/backtest/types';
 
@@ -19,100 +38,122 @@ export function BacktestPanel({ settings, onSettingsChange, onRun, report, runni
 
   return (
     <div className="absolute right-20 top-0 z-40 flex flex-col items-center">
-      {/* Panel body */}
       {!collapsed && (
-        <div className="w-64 rounded-b-lg border border-t-0 border-tv-border bg-tv-panel shadow-2xl">
-          {/* Header */}
-          <div className="flex items-center gap-2 px-3 py-1.5">
+        <div className="w-80 rounded-b-lg border border-t-0 border-tv-border bg-tv-panel shadow-2xl">
+          <div className="flex items-center gap-2 border-b border-tv-border px-3 py-2">
             <Settings2 className="h-3.5 w-3.5 text-tv-accent" />
             <span className="text-xs font-semibold text-white">Бэктест</span>
           </div>
 
-          {/* Settings */}
-          <div className="space-y-1.5 px-3 py-1.5">
-            <SettingRow label="Стоп-лосс (%)" title="Отступ стопа от цены входа в процентах">
-              <NumberInput
-                value={settings.stopPct}
-                min={0.05}
-                max={10}
-                step={0.05}
-                onChange={(v) => update('stopPct', v)}
+          <div className="max-h-[70vh] overflow-y-auto px-3 py-2">
+            <Section title="Управление риском">
+              <Row label="Стоп-лосс (%)" hint="Отступ стопа от цены входа в %">
+                <NumberInput
+                  value={settings.stopPct}
+                  min={0.05}
+                  max={10}
+                  step={0.05}
+                  disabled={settings.slBehindWick}
+                  onChange={(v) => update('stopPct', v)}
+                />
+              </Row>
+              <Row label="Reward (R:R)" hint="Мультипликатор тейка к размеру стопа">
+                <NumberInput
+                  value={settings.rewardRatio}
+                  min={0.5}
+                  max={20}
+                  step={0.5}
+                  onChange={(v) => update('rewardRatio', v)}
+                />
+              </Row>
+              <Toggle
+                label="SL за фитилём зоны"
+                hint="для OB/BB/RB ставить SL на границе зоны вместо stopPct"
+                checked={settings.slBehindWick}
+                onChange={(v) => update('slBehindWick', v)}
               />
-            </SettingRow>
+            </Section>
 
-            <SettingRow label="Reward (R:R)" title="Мультипликатор тейка к размеру стопа">
-              <NumberInput
-                value={settings.rewardRatio}
-                min={0.5}
-                max={20}
-                step={0.5}
-                onChange={(v) => update('rewardRatio', v)}
-              />
-            </SettingRow>
+            <Section title="Зоны и фильтры">
+              <Row label="Gap зоны (%)" hint="расширить зону интереса по краям">
+                <NumberInput
+                  value={settings.zoneGapPct}
+                  min={0}
+                  max={100}
+                  step={5}
+                  onChange={(v) => update('zoneGapPct', v)}
+                />
+              </Row>
+              <Row label="Мин. FVG (%)" hint="мелкие гэпы игнорируются">
+                <NumberInput
+                  value={settings.minFvgPct}
+                  min={0}
+                  max={5}
+                  step={0.05}
+                  onChange={(v) => update('minFvgPct', v)}
+                />
+              </Row>
+              <Row label="Макс. тело свечи (%)" hint="0 = без ограничения">
+                <NumberInput
+                  value={settings.maxCandleBodyPct}
+                  min={0}
+                  max={10}
+                  step={0.1}
+                  onChange={(v) => update('maxCandleBodyPct', v)}
+                />
+              </Row>
+            </Section>
 
-            <SettingRow label="Gap зоны (%)" title="Расширение зоны интереса — ищем вход даже если цена чуть не дошла">
-              <NumberInput
-                value={settings.zoneGapPct}
-                min={0}
-                max={100}
-                step={5}
-                onChange={(v) => update('zoneGapPct', v)}
-              />
-            </SettingRow>
-
-            <SettingRow label="Перезаходов" title="Макс. повторных входов в одной зоне после стопа (пересвип)">
-              <NumberInput
-                value={settings.maxReentries}
-                min={0}
-                max={10}
-                step={1}
-                onChange={(v) => update('maxReentries', v)}
-              />
-            </SettingRow>
-
-            <SettingRow label="Мин. FVG (%)" title="Мин. размер FVG в % от цены. Мелкие гэпы игнорируются">
-              <NumberInput
-                value={settings.minFvgPct}
-                min={0}
-                max={5}
-                step={0.05}
-                onChange={(v) => update('minFvgPct', v)}
-              />
-            </SettingRow>
-
-            <SettingRow label="Макс. тело (%)" title="Макс. размер тела сигнальной свечи в % от цены. 0 = без ограничения">
-              <NumberInput
-                value={settings.maxCandleBodyPct}
-                min={0}
-                max={10}
-                step={0.1}
-                onChange={(v) => update('maxCandleBodyPct', v)}
-              />
-            </SettingRow>
-
-            <label className="flex cursor-pointer items-center justify-between" title="Разрешить заходить в зону снова после успешной сделки (win)">
-              <span className="text-[11px] text-tv-text">Перезаход после win</span>
-              <input
-                type="checkbox"
+            <Section title="Перезаходы">
+              <Row label="Макс. перезаходов" hint="после стопа — сколько раз ещё пробуем">
+                <NumberInput
+                  value={settings.maxReentries}
+                  min={0}
+                  max={10}
+                  step={1}
+                  onChange={(v) => update('maxReentries', v)}
+                />
+              </Row>
+              <Toggle
+                label="Перезаход после win"
+                hint="разрешить входить в зону снова после успешной сделки"
                 checked={settings.reentryAfterWin}
-                onChange={(e) => update('reentryAfterWin', e.target.checked)}
-                className="h-3.5 w-3.5 accent-tv-accent"
+                onChange={(v) => update('reentryAfterWin', v)}
               />
-            </label>
+              <Toggle
+                label="Валидность по MT"
+                hint="OB живёт пока тело свечи не закрылось за 50% тела (Mean Threshold)"
+                checked={settings.validityByMt}
+                onChange={(v) => update('validityByMt', v)}
+              />
+            </Section>
 
-            <label className="flex cursor-pointer items-center justify-between" title="Записывать backtest-log.txt с причинами отказа по каждому сигналу">
-              <span className="text-[11px] text-tv-text">Debug лог</span>
-              <input
-                type="checkbox"
+            <Section title="Точка входа">
+              <Row label="Уровень" hint="по какой цене заходим в сделку">
+                <Select
+                  value={settings.entryPoint}
+                  onChange={(v) => update('entryPoint', v as BacktestSettings['entryPoint'])}
+                  options={[
+                    { value: 'close', label: 'Close свечи' },
+                    { value: 'open', label: 'Open OB (ретест)' },
+                    { value: 'mt', label: 'Mean Threshold' },
+                    { value: 'wick', label: 'Дальний фитиль' },
+                  ]}
+                />
+              </Row>
+            </Section>
+
+            <Section title="Диагностика">
+              <Toggle
+                label="Debug лог"
+                hint="писать backtest-log.txt с причинами отказа"
                 checked={settings.debugLog}
-                onChange={(e) => update('debugLog', e.target.checked)}
-                className="h-3.5 w-3.5 accent-tv-accent"
+                onChange={(v) => update('debugLog', v)}
               />
-            </label>
+            </Section>
           </div>
 
-          {/* Run button */}
-          <div className="px-3 py-1.5">
+          <div className="border-t border-tv-border px-3 py-2">
             <button
               type="button"
               onClick={() => onRun(settings)}
@@ -133,12 +174,10 @@ export function BacktestPanel({ settings, onSettingsChange, onRun, report, runni
             </button>
           </div>
 
-          {/* Report */}
           {report && <BacktestReportView report={report} />}
         </div>
       )}
 
-      {/* Toggle arrow — always visible at the bottom edge */}
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
@@ -158,10 +197,122 @@ export function BacktestPanel({ settings, onSettingsChange, onRun, report, runni
   );
 }
 
+// ============================================================================
+// Building blocks
+// ============================================================================
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="mb-3 last:mb-0">
+      <h4 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-tv-text-muted">
+        {title}
+      </h4>
+      <div className="flex flex-col gap-1.5 rounded border border-tv-border/60 bg-tv-bg-deep/40 p-2">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function Row({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2" title={hint}>
+      <span className="text-[11px] text-tv-text">{label}</span>
+      {children}
+    </div>
+  );
+}
+
+function Toggle({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-2" title={hint}>
+      <span className="text-[11px] text-tv-text">{label}</span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-3.5 w-3.5 accent-tv-accent"
+      />
+    </label>
+  );
+}
+
+function NumberInput({
+  value,
+  min,
+  max,
+  step,
+  disabled,
+  onChange,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  disabled?: boolean;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <input
+      type="number"
+      value={value}
+      min={min}
+      max={max}
+      step={step}
+      disabled={disabled}
+      onChange={(e) => {
+        const v = parseFloat(e.target.value);
+        if (!isNaN(v) && v >= min && v <= max) onChange(v);
+      }}
+      className="w-20 rounded border border-tv-border bg-tv-bg-deep px-2 py-0.5 text-right font-mono text-[11px] text-white outline-none focus:border-tv-accent disabled:opacity-40"
+    />
+  );
+}
+
+function Select({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: readonly { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-40 rounded border border-tv-border bg-tv-bg-deep px-2 py-0.5 text-[11px] text-white outline-none focus:border-tv-accent"
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>{o.label}</option>
+      ))}
+    </select>
+  );
+}
+
 function BacktestReportView({ report }: { report: BacktestReport }) {
   const wr = (report.winRate * 100).toFixed(1);
   return (
-    <div className="border-t border-tv-border px-3 py-1.5">
+    <div className="border-t border-tv-border px-3 py-2">
       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
         <StatLine label="Сделок" value={String(report.totalTrades)} />
         <StatLine
@@ -199,51 +350,5 @@ function StatLine({ label, value, color }: { label: string; value: string; color
       <span className="text-tv-text-dim">{label}</span>
       <span className={`text-right font-mono ${color ?? 'text-white'}`}>{value}</span>
     </>
-  );
-}
-
-function SettingRow({
-  label,
-  title,
-  children,
-}: {
-  label: string;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between" title={title}>
-      <span className="text-[11px] text-tv-text">{label}</span>
-      {children}
-    </div>
-  );
-}
-
-function NumberInput({
-  value,
-  min,
-  max,
-  step,
-  onChange,
-}: {
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <input
-      type="number"
-      value={value}
-      min={min}
-      max={max}
-      step={step}
-      onChange={(e) => {
-        const v = parseFloat(e.target.value);
-        if (!isNaN(v) && v >= min && v <= max) onChange(v);
-      }}
-      className="w-20 rounded border border-tv-border bg-tv-bg-deep px-2 py-0.5 text-right font-mono text-[11px] text-white outline-none focus:border-tv-accent"
-    />
   );
 }

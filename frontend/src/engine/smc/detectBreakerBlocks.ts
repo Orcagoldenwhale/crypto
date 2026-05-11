@@ -61,6 +61,7 @@ export function detectBreakerBlocks(
       minPrice: ob.minPrice,
       maxPrice: ob.maxPrice,
       mtPrice: ob.mtPrice,
+      openPrice: ob.openPrice,
       unmitigated: mitTime === null,
       sourceObId: ob.id,
     });

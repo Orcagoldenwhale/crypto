@@ -23,6 +23,27 @@ export interface BacktestSettings {
   debugLog: boolean;
   /** Разрешить перезаходы в зону даже после успешной сделки (win). */
   reentryAfterWin: boolean;
+  /**
+   * Точка входа для зон OB/BB:
+   * - 'close' (по умолчанию): close сигнальной свечи (текущее поведение);
+   * - 'open':  открыть позицию по уровню Open OB-свечи (если свеча его коснулась);
+   * - 'mt':    по Mean Threshold (50% тела OB);
+   * - 'wick':  по дальнему фитилю зоны.
+   * Для зон без OB-уровней (FVG, liquidity, structure) всегда 'close'.
+   */
+  entryPoint: 'close' | 'open' | 'mt' | 'wick';
+  /**
+   * Если true — для входов из OB/BB/RB ставить SL за фитилём зоны
+   * (min/maxPrice), игнорируя stopPct. Reward считается от
+   * актуального риска (entry − SL).
+   */
+  slBehindWick: boolean;
+  /**
+   * Если true — OB остаётся валидным для входа пока тело свечи не
+   * закрылось за Mean Threshold (50% тела OB). При закрытии тела за MT
+   * зона выключается, независимо от maxReentries/fvgMaxFillPct.
+   */
+  validityByMt: boolean;
 }
 
 export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
@@ -35,6 +56,9 @@ export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
   minFvgPct: 0.1,
   debugLog: false,
   reentryAfterWin: false,
+  entryPoint: 'close',
+  slBehindWick: false,
+  validityByMt: false,
 };
 
 /** Одна сделка бэктеста. */

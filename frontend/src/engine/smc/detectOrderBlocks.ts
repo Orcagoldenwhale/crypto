@@ -145,6 +145,10 @@ export function detectOrderBlocks(
       : findMitigation(arr, breakIdx + 1, kind, minPrice, maxPrice);
 
     const groupStartTime = arr[groupFromIdx]!.timestamp;
+    // Open уровень: для одиночной свечи = её open. Для multi-candle
+    // берём open первой свечи группы (это начало "противонаправленного"
+    // движения, которое поглотится импульсом).
+    const openPrice = arr[groupFromIdx]!.open;
     out.push({
       id: `ob-${kind}-${groupStartTime}`,
       kind,
@@ -154,6 +158,7 @@ export function detectOrderBlocks(
       minPrice,
       maxPrice,
       mtPrice,
+      openPrice,
       hasFvg,
       unmitigated: mit === null,
       breakKind: sb.kind,

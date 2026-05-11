@@ -14,6 +14,10 @@ export interface SmcZoneRect {
   fvgMaxPrice: Price;
   /** bull OB → LONG only, bear OB → SHORT only, null → без ограничения. */
   obKind: 'bull' | 'bear' | null;
+  /** Open уровень OB/BB-свечи (для entryPoint='open'). null для не-OB зон. */
+  obOpenPrice: Price | null;
+  /** Mean Threshold (50% тела OB/BB). null для не-OB зон. */
+  obMtPrice: Price | null;
 }
 
 /**
@@ -37,6 +41,8 @@ export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRe
       fvgMinPrice: fvg.minPrice,
       fvgMaxPrice: fvg.maxPrice,
       obKind: null,
+      obOpenPrice: null,
+      obMtPrice: null,
     });
   }
 
@@ -53,6 +59,8 @@ export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRe
       fvgMinPrice: 0,
       fvgMaxPrice: 0,
       obKind: null,
+      obOpenPrice: null,
+      obMtPrice: null,
     });
   }
 
@@ -69,6 +77,8 @@ export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRe
       fvgMinPrice: 0,
       fvgMaxPrice: 0,
       obKind: ob.kind,
+      obOpenPrice: ob.openPrice,
+      obMtPrice: ob.mtPrice,
     });
   }
 
@@ -85,6 +95,8 @@ export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRe
       fvgMinPrice: 0,
       fvgMaxPrice: 0,
       obKind: bb.kind,
+      obOpenPrice: bb.openPrice,
+      obMtPrice: bb.mtPrice,
     });
   }
 
@@ -101,6 +113,10 @@ export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRe
       fvgMinPrice: 0,
       fvgMaxPrice: 0,
       obKind: rb.kind,
+      // RB не имеет классических Open уровней, но MT = середина фитиля.
+      // Это и есть точка, от которой целесообразно входить.
+      obOpenPrice: null,
+      obMtPrice: rb.mtPrice,
     });
   }
 
@@ -117,6 +133,8 @@ export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRe
       fvgMinPrice: 0,
       fvgMaxPrice: 0,
       obKind: null,
+      obOpenPrice: null,
+      obMtPrice: null,
     });
   }
 
@@ -127,6 +145,35 @@ function candleInZone(candle: Candle5m, zone: SmcZoneRect): boolean {
   if (candle.timestamp <= zone.startTime || candle.timestamp > zone.endTime) return false;
   if (candle.high < zone.minPrice || candle.low > zone.maxPrice) return false;
   return true;
+}
+
+/**
+ * Возвращает цену входа согласно выбранной точке entryPoint.
+ * Если требуемая точка вне диапазона свечи — возвращает null
+ * (сделку пропускаем — ждать ретеста на этой свече смысла нет).
+ *
+ * Для зон без OB-уровней (FVG, liquidity, structure) всегда close.
+ */
+function computeEntryPrice(
+  candle: Candle5m,
+  zone: SmcZoneRect,
+  type: 'LONG' | 'SHORT',
+  mode: BacktestSettings['entryPoint'],
+): Price | null {
+  if (mode === 'close') return candle.close;
+  // Для не-OB зон или если поля не заданы — fallback на close.
+  if (zone.obKind === null) return candle.close;
+
+  let target: Price | null = null;
+  if (mode === 'open') target = zone.obOpenPrice;
+  else if (mode === 'mt') target = zone.obMtPrice;
+  else if (mode === 'wick') target = type === 'LONG' ? zone.minPrice : zone.maxPrice;
+  if (target === null) return candle.close;
+
+  // Свеча должна была коснуться целевой цены.
+  const reached = type === 'LONG' ? candle.low <= target : candle.high >= target;
+  if (!reached) return null;
+  return target;
 }
 
 function fvgFillPct(zone: SmcZoneRect, candle: Candle5m): number {
@@ -150,6 +197,8 @@ export function runBacktest(
   const trades: BacktestTrade[] = [];
   const zoneEntryCount = new Map<string, number>();
   const zoneFillMax = new Map<string, number>();
+  /** Зоны, инвалидированные пробитием MT телом свечи. */
+  const zoneMtBreached = new Set<string>();
   const debug = settings.debugLog;
   const log: string[] = [];
   const trace = debug ? (msg: string) => { log.push(msg); } : () => {};
@@ -169,6 +218,14 @@ export function runBacktest(
           const fill = fvgFillPct(zone, candle);
           const prev = zoneFillMax.get(zone.id) ?? 0;
           if (fill > prev) zoneFillMax.set(zone.id, fill);
+        }
+        // MT-breach: тело свечи закрылось за MT → зона невалидна.
+        if (settings.validityByMt && zone.obKind !== null && zone.obMtPrice !== null
+            && candle.timestamp > zone.startTime && !zoneMtBreached.has(zone.id)) {
+          const breached = zone.obKind === 'bull'
+            ? candle.close < zone.obMtPrice
+            : candle.close > zone.obMtPrice;
+          if (breached) zoneMtBreached.add(zone.id);
         }
       }
       continue;
@@ -219,30 +276,44 @@ export function runBacktest(
         }
       }
 
+      // MT-validity: если включено и зона уже инвалидирована пробитием MT — skip.
+      if (settings.validityByMt && zoneMtBreached.has(zone.id)) {
+        trace(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=mt_breached`);
+        continue;
+      }
+
       const count = zoneEntryCount.get(zone.id) ?? 0;
       if (count > settings.maxReentries) {
         trace(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=max_reentries (${count} > ${settings.maxReentries})`);
         continue;
       }
 
+      const type = check.type;
+
+      // ---- Точка входа ----
+      const entryPrice = computeEntryPrice(candle, zone, type, settings.entryPoint);
+      if (entryPrice === null) {
+        trace(`[BT] ${ts} ${type} SKIP zone=${zone.id} reason=entry_not_reached (${settings.entryPoint})`);
+        continue;
+      }
+
       matched = true;
 
-      const type = check.type;
-      const entryPrice = candle.close;
-      const stopOffset = entryPrice * (settings.stopPct / 100);
-
+      // ---- Stop-loss ----
       let stopPrice: Price;
-      let takePrice: Price;
-
-      if (type === 'LONG') {
-        stopPrice = entryPrice - stopOffset;
-        const risk = entryPrice - stopPrice;
-        takePrice = entryPrice + risk * settings.rewardRatio;
+      if (settings.slBehindWick && zone.obKind !== null) {
+        // SL за фитилём зоны (учитываем gap-расширение собственно SmcZoneRect).
+        stopPrice = (type === 'LONG' ? zone.minPrice : zone.maxPrice);
       } else {
-        stopPrice = entryPrice + stopOffset;
-        const risk = stopPrice - entryPrice;
-        takePrice = entryPrice - risk * settings.rewardRatio;
+        const stopOffset = entryPrice * (settings.stopPct / 100);
+        stopPrice = type === 'LONG' ? entryPrice - stopOffset : entryPrice + stopOffset;
       }
+
+      // ---- Take-profit от актуального риска ----
+      const risk = Math.abs(entryPrice - stopPrice);
+      const takePrice = type === 'LONG'
+        ? entryPrice + risk * settings.rewardRatio
+        : entryPrice - risk * settings.rewardRatio;
 
       let outcome: BacktestTrade['outcome'] = 'open';
       let exitTime: TimestampMs | null = null;
@@ -318,6 +389,13 @@ export function runBacktest(
         const fill = fvgFillPct(zone, candle);
         const prev = zoneFillMax.get(zone.id) ?? 0;
         if (fill > prev) zoneFillMax.set(zone.id, fill);
+      }
+      if (settings.validityByMt && zone.obKind !== null && zone.obMtPrice !== null
+          && candle.timestamp > zone.startTime && !zoneMtBreached.has(zone.id)) {
+        const breached = zone.obKind === 'bull'
+          ? candle.close < zone.obMtPrice
+          : candle.close > zone.obMtPrice;
+        if (breached) zoneMtBreached.add(zone.id);
       }
     }
   }

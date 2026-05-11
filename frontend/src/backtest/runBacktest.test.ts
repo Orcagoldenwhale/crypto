@@ -236,4 +236,94 @@ describe('runBacktest', () => {
     // risk = 1.005, take = 100.5 + 1.005*2 = 102.51
     expect(report.trades[0]!.takePrice).toBeCloseTo(102.51, 3);
   });
+
+  it('entryPoint=mt: вход по Mean Threshold OB-зоны', () => {
+    // Bull OB зона с MT=100. Сигнальная свеча low=99 (достаёт MT).
+    const overlay: SmcOverlay = {
+      fvgs: [],
+      liquidity: [],
+      structure: [],
+      orderBlocks: [
+        {
+          id: 'ob1',
+          kind: 'bull',
+          obTime: T0,
+          startTime: T0,
+          endTime: T0 + MS5 * 10,
+          minPrice: 98,
+          maxPrice: 102,
+          mtPrice: 100,
+          openPrice: 102,
+          hasFvg: false,
+          unmitigated: true,
+          breakKind: 'BOS',
+        },
+      ],
+      breakerBlocks: [],
+      rejectionBlocks: [],
+      prevDayLevels: [],
+      compressions: [],
+    };
+    const signal = makeCandle(T0 + MS5, 100, 101, 99, 100.8, 10, 100, -5, 2);
+    const candles: Candle5m[] = [
+      makeCandle(T0, 100, 101, 99, 100, 0, 100, 0, 0),
+      signal,
+      makeCandle(T0 + MS5 * 2, 100.8, 108, 100.5, 107, 5, 104, -1, 1),
+    ];
+    const settings: BacktestSettings = {
+      ...DEFAULT_BACKTEST_SETTINGS,
+      stopPct: 0.3,
+      zoneGapPct: 0,
+      fvgMaxFillPct: 100,
+      entryPoint: 'mt',
+    };
+    const report = runBacktest(candles, overlay, settings);
+    expect(report.totalTrades).toBe(1);
+    // Entry должен быть равен MT = 100, а не close=100.8.
+    expect(report.trades[0]!.entryPrice).toBe(100);
+  });
+
+  it('slBehindWick: SL устанавливается на minPrice зоны', () => {
+    const overlay: SmcOverlay = {
+      fvgs: [],
+      liquidity: [],
+      structure: [],
+      orderBlocks: [
+        {
+          id: 'ob1',
+          kind: 'bull',
+          obTime: T0,
+          startTime: T0,
+          endTime: T0 + MS5 * 10,
+          minPrice: 95,
+          maxPrice: 102,
+          mtPrice: 98.5,
+          openPrice: 102,
+          hasFvg: false,
+          unmitigated: true,
+          breakKind: 'BOS',
+        },
+      ],
+      breakerBlocks: [],
+      rejectionBlocks: [],
+      prevDayLevels: [],
+      compressions: [],
+    };
+    const candles: Candle5m[] = [
+      makeCandle(T0, 100, 101, 99, 100, 0, 100, 0, 0),
+      makeCandle(T0 + MS5, 100, 101, 99, 100.8, 10, 100, -5, 2),
+      makeCandle(T0 + MS5 * 2, 100.8, 108, 100.5, 107, 5, 104, -1, 1),
+    ];
+    const settings: BacktestSettings = {
+      ...DEFAULT_BACKTEST_SETTINGS,
+      stopPct: 0.3,
+      zoneGapPct: 0,
+      fvgMaxFillPct: 100,
+      slBehindWick: true,
+    };
+    const report = runBacktest(candles, overlay, settings);
+    expect(report.totalTrades).toBe(1);
+    // SL = minPrice зоны = 95
+    expect(report.trades[0]!.stopPrice).toBe(95);
+  });
 });

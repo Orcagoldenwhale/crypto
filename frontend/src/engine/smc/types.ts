@@ -367,6 +367,8 @@ export interface OrderBlockZone {
   maxPrice: Price;
   /** Mean Threshold — 50% от тела OB-свечи (между open и close). */
   mtPrice: Price;
+  /** Open уровень OB-свечи (для входа от Open, лекция OB §5). */
+  openPrice: Price;
   /** Был ли между OB и break-свечой Fair Value Gap — повышает «качество» OB. */
   hasFvg: boolean;
   /** true = ещё не отработан (цена не возвращалась внутрь OB). */
@@ -399,6 +401,8 @@ export interface BreakerBlockZone {
   maxPrice: Price;
   /** Mean Threshold — 50% тела оригинальной OB-свечи. */
   mtPrice: Price;
+  /** Open уровень исходной OB-свечи. */
+  openPrice: Price;
   /** true = ещё не отработан (цена не возвращалась к BB). */
   unmitigated: boolean;
   /** ID исходного OB, из которого получился этот BB. */
