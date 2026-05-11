@@ -121,6 +121,15 @@ export function loadSmcOptions(): SmcOptions {
       5,
       DEFAULT_SMC_OPTIONS.minFvgPct,
     ),
+    obExtraction: parseObExtraction(obj.obExtraction),
+    obUseMeanThreshold:
+      typeof obj.obUseMeanThreshold === 'boolean'
+        ? obj.obUseMeanThreshold
+        : DEFAULT_SMC_OPTIONS.obUseMeanThreshold,
+    obRequireAbsorption:
+      typeof obj.obRequireAbsorption === 'boolean'
+        ? obj.obRequireAbsorption
+        : DEFAULT_SMC_OPTIONS.obRequireAbsorption,
   };
 }
 
@@ -163,6 +172,11 @@ function parseHideMitigated(
 
 export function saveSmcOptions(opts: SmcOptions): void {
   safeSet(OPTS_KEY, JSON.stringify(opts));
+}
+
+function parseObExtraction(raw: unknown): SmcOptions['obExtraction'] {
+  if (raw === 'body' || raw === 'wicks' || raw === 'auto') return raw;
+  return DEFAULT_SMC_OPTIONS.obExtraction;
 }
 
 // ============================================================================

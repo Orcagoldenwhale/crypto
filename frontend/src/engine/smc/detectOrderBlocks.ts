@@ -19,7 +19,7 @@
  */
 
 import type { Candle1h, Candle15m, Candle5m } from '@/types';
-import type { OrderBlockZone, StructureBreak } from './types';
+import type { ObExtractionMode, OrderBlockZone, StructureBreak } from './types';
 
 interface OhlcCandle {
   timestamp: number;
@@ -32,10 +32,21 @@ interface OhlcCandle {
 export interface DetectOrderBlocksOptions {
   /**
    * Если true — оставляем только OB, у которых есть FVG между блоком и
-   * break-свечой. По умолчанию false: показываем все OB, но помечаем
-   * `hasFvg` отдельным флагом для UI-различия.
+   * break-свечой.
    */
   requireFvg?: boolean;
+  /** Как выделять границы OB (wicks/body/auto). По умолчанию 'wicks'. */
+  extraction?: ObExtractionMode;
+  /**
+   * Учитывать ли Mean Threshold при mitigation. Если true — зона
+   * считается отработанной только при закрытии свечи телом за MT.
+   */
+  useMeanThreshold?: boolean;
+  /**
+   * Требовать "поглощение": последующая свеча должна закрыться телом
+   * за пределами тела OB (ниже close для bear, выше для bull).
+   */
+  requireAbsorption?: boolean;
 }
 
 export function detectOrderBlocks(
@@ -72,10 +83,21 @@ export function detectOrderBlocks(
     if (options.requireFvg && !hasFvg) continue;
 
     const kind: OrderBlockZone['kind'] = sb.dir === 'up' ? 'bull' : 'bear';
-    const minPrice = ob.low;
-    const maxPrice = ob.high;
+    const extraction = options.extraction ?? 'wicks';
+    const { minPrice, maxPrice } = extractObBounds(ob, extraction);
 
-    const mit = findMitigation(arr, breakIdx + 1, kind, minPrice, maxPrice);
+    // Поглощение: следующая после break свеча должна закрыться телом
+    // за пределами тела OB-свечи.
+    if (options.requireAbsorption) {
+      const absorbed = checkAbsorption(arr, obIdx, breakIdx, kind);
+      if (!absorbed) continue;
+    }
+
+    const mtPrice = (ob.open + ob.close) / 2;
+    const mit = options.useMeanThreshold
+      ? findMtMitigation(arr, breakIdx + 1, kind, mtPrice)
+      : findMitigation(arr, breakIdx + 1, kind, minPrice, maxPrice);
+
     out.push({
       id: `ob-${kind}-${ob.timestamp}`,
       kind,
@@ -84,6 +106,7 @@ export function detectOrderBlocks(
       endTime: mit !== null ? mit : lastTime,
       minPrice,
       maxPrice,
+      mtPrice,
       hasFvg,
       unmitigated: mit === null,
       breakKind: sb.kind,
@@ -184,4 +207,82 @@ function findMitigation(
     }
   }
   return null;
+}
+
+/**
+ * Mitigation по Mean Threshold: OB считается отработанным только когда
+ * тело свечи закрылось за уровнем MT.
+ *   bull-OB: close <= mtPrice (закрытие ниже середины тела)
+ *   bear-OB: close >= mtPrice (закрытие выше середины тела)
+ * Касания фитилями игнорируются — это соответствует методике из лекции.
+ */
+function findMtMitigation(
+  arr: readonly OhlcCandle[],
+  from: number,
+  kind: 'bull' | 'bear',
+  mtPrice: number,
+): number | null {
+  for (let k = from; k < arr.length; k++) {
+    const c = arr[k]!;
+    if (kind === 'bull' ? c.close <= mtPrice : c.close >= mtPrice) {
+      return c.timestamp;
+    }
+  }
+  return null;
+}
+
+/**
+ * Извлекает границы OB по выбранному режиму:
+ *   wicks → [low, high]
+ *   body  → [min(open,close), max(open,close)]
+ *   auto  → wicks, если фитили > тело; иначе body
+ */
+function extractObBounds(
+  c: OhlcCandle,
+  mode: ObExtractionMode,
+): { minPrice: number; maxPrice: number } {
+  if (mode === 'body') {
+    return {
+      minPrice: Math.min(c.open, c.close),
+      maxPrice: Math.max(c.open, c.close),
+    };
+  }
+  if (mode === 'auto') {
+    const body = Math.abs(c.close - c.open);
+    const upperWick = c.high - Math.max(c.open, c.close);
+    const lowerWick = Math.min(c.open, c.close) - c.low;
+    const totalWick = upperWick + lowerWick;
+    if (totalWick > body) {
+      return { minPrice: c.low, maxPrice: c.high };
+    }
+    return {
+      minPrice: Math.min(c.open, c.close),
+      maxPrice: Math.max(c.open, c.close),
+    };
+  }
+  return { minPrice: c.low, maxPrice: c.high };
+}
+
+/**
+ * Проверяет "поглощение" OB следующей свечой:
+ *   bull-OB (dir=up): свеча после break закрылась телом ВЫШЕ тела OB
+ *                     (next.close > max(ob.open, ob.close))
+ *   bear-OB (dir=down): закрылась ниже тела OB
+ * Достаточно одной такой свечи в диапазоне (obIdx .. breakIdx].
+ */
+function checkAbsorption(
+  arr: readonly OhlcCandle[],
+  obIdx: number,
+  breakIdx: number,
+  kind: 'bull' | 'bear',
+): boolean {
+  const ob = arr[obIdx]!;
+  const obBodyTop = Math.max(ob.open, ob.close);
+  const obBodyBot = Math.min(ob.open, ob.close);
+  for (let k = obIdx + 1; k <= breakIdx; k++) {
+    const c = arr[k]!;
+    if (kind === 'bull' && c.close > obBodyTop) return true;
+    if (kind === 'bear' && c.close < obBodyBot) return true;
+  }
+  return false;
 }

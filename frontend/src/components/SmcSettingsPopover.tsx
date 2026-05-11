@@ -198,6 +198,57 @@ export function SmcSettingsPopover({
         />
       </Field>
 
+      <div className="flex flex-col gap-1.5 border-t border-tv-border pt-2">
+        <span className="text-[11px] font-medium text-tv-text">
+          Order Blocks
+        </span>
+
+        <Field
+          label="Выделение OB"
+          hint="wicks — по фитилям, body — по телу, auto — авто-выбор"
+        >
+          <select
+            value={options.obExtraction}
+            onChange={(e) => setField('obExtraction', e.target.value as typeof options.obExtraction)}
+            className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
+          >
+            <option value="wicks">По фитилям (wicks)</option>
+            <option value="body">По телу (body)</option>
+            <option value="auto">Авто (auto)</option>
+          </select>
+        </Field>
+
+        <label className="flex cursor-pointer items-start gap-2 text-xs text-tv-text">
+          <input
+            type="checkbox"
+            checked={options.obUseMeanThreshold}
+            onChange={(e) => setField('obUseMeanThreshold', e.target.checked)}
+            className="mt-0.5 h-3.5 w-3.5 accent-tv-accent"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span>Учитывать Mean Threshold</span>
+            <span className="text-[10px] text-tv-text-muted">
+              OB живёт пока тело свечи не закрылось за 50% от тела OB
+            </span>
+          </span>
+        </label>
+
+        <label className="flex cursor-pointer items-start gap-2 text-xs text-tv-text">
+          <input
+            type="checkbox"
+            checked={options.obRequireAbsorption}
+            onChange={(e) => setField('obRequireAbsorption', e.target.checked)}
+            className="mt-0.5 h-3.5 w-3.5 accent-tv-accent"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span>Требовать поглощение телом</span>
+            <span className="text-[10px] text-tv-text-muted">
+              импульсная свеча должна закрыться за телом OB
+            </span>
+          </span>
+        </label>
+      </div>
+
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-medium text-tv-text">

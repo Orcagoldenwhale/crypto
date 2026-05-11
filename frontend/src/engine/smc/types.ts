@@ -102,6 +102,9 @@ export interface SmcHideMitigated {
   orderBlocks: boolean;
 }
 
+/** Способ выделения границ OB. */
+export type ObExtractionMode = 'wicks' | 'body' | 'auto';
+
 export interface SmcOptions {
   lookback: number;
   equalityTolerancePct: number;
@@ -110,6 +113,25 @@ export interface SmcOptions {
   fvgMaxFillPct: number;
   /** Мин. размер FVG в % от цены. FVG меньше порога не отображаются. */
   minFvgPct: number;
+  /**
+   * Как выделять границы OB:
+   * - 'wicks' — по фитилям (low/high свечи). Классика для крипты.
+   * - 'body'  — по телу (min/max от open/close). Для широких тел.
+   * - 'auto'  — по фитилям если фитили большие, иначе по телу.
+   */
+  obExtraction: ObExtractionMode;
+  /**
+   * Учитывать Mean Threshold (50% тела OB).
+   * Если включено — OB считается mitigated только при закрытии тела свечи
+   * за уровень MT, а не при касании границы. Касание фитилем не считается.
+   */
+  obUseMeanThreshold: boolean;
+  /**
+   * Требовать "поглощение" следующих свеч телом за пределами тела OB.
+   * Если включено — отбрасываем OB, у которых impulse-свечи закрылись
+   * внутри тела блока (слабое поглощение).
+   */
+  obRequireAbsorption: boolean;
 }
 
 /** Видимость каждого слоя (тогглы из Toolbox). */
@@ -148,6 +170,9 @@ export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
   hideMitigated: DEFAULT_HIDE_MITIGATED,
   minFvgPct: 0.1,
   fvgMaxFillPct: 50,
+  obExtraction: 'wicks',
+  obUseMeanThreshold: false,
+  obRequireAbsorption: false,
 });
 
 export const DEFAULT_SMC_LAYERS: SmcLayers = Object.freeze({
@@ -221,6 +246,8 @@ export interface OrderBlockZone {
   endTime: TimestampMs;
   minPrice: Price;
   maxPrice: Price;
+  /** Mean Threshold — 50% от тела OB-свечи (между open и close). */
+  mtPrice: Price;
   /** Был ли между OB и break-свечой Fair Value Gap — повышает «качество» OB. */
   hasFvg: boolean;
   /** true = ещё не отработан (цена не возвращалась внутрь OB). */

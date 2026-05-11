@@ -67,7 +67,11 @@ export function runSmcAnalysis(
     : structureRaw;
 
   const orderBlocksRaw = layers.orderBlocks
-    ? detectOrderBlocks(candles, allBreaks)
+    ? detectOrderBlocks(candles, allBreaks, {
+        extraction: options.obExtraction,
+        useMeanThreshold: options.obUseMeanThreshold,
+        requireAbsorption: options.obRequireAbsorption,
+      })
     : [];
   const orderBlocks = hide.orderBlocks
     ? orderBlocksRaw.filter((ob) => ob.unmitigated)
