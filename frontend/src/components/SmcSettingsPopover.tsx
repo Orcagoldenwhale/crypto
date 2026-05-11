@@ -368,6 +368,29 @@ export function SmcSettingsPopover({
                   checked={options.rbRequireSweep}
                   onChange={(v) => setField('rbRequireSweep', v)}
                 />
+                <div className="border-t border-tv-border/40 pt-2">
+                  <p className="mb-1 text-[10px] uppercase tracking-wider text-tv-text-muted">
+                    Доп. источники "снятия" (лекция §3)
+                  </p>
+                  <p className="mb-2 text-[10px] text-tv-text-muted">
+                    Расширяют требование выше — RB валиден если фитиль зашёл
+                    в любую из включённых зон ИЛИ снял swing-уровень.
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <CheckboxRow
+                      label="Фитиль в FVG"
+                      hint="RB засчитывается если фитиль зашёл в существующий FVG"
+                      checked={options.rbAlsoAtFvg}
+                      onChange={(v) => setField('rbAlsoAtFvg', v)}
+                    />
+                    <CheckboxRow
+                      label="Фитиль в предыдущий OB/BB"
+                      hint="RB засчитывается если фитиль зашёл в ранее найденный блок"
+                      checked={options.rbAlsoAtPrevBlock}
+                      onChange={(v) => setField('rbAlsoAtPrevBlock', v)}
+                    />
+                  </div>
+                </div>
                 <CheckboxRow
                   label="Прятать отработанные"
                   hint="цена возвращалась внутрь фитиля"

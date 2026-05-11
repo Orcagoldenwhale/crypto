@@ -20,7 +20,12 @@
  */
 
 import type { Candle1h, Candle15m, Candle5m } from '@/types';
-import type { LiquidityZone, RejectionBlockZone } from './types';
+import type {
+  FvgZone,
+  LiquidityZone,
+  OrderBlockZone,
+  RejectionBlockZone,
+} from './types';
 
 interface OhlcCandle {
   timestamp: number;
@@ -38,6 +43,18 @@ export interface DetectRejectionBlocksOptions {
    * По умолчанию true.
    */
   requireSweep?: boolean;
+  /**
+   * Дополнительный источник "снятия": фитиль зашёл в FVG. Если включено
+   * (и requireSweep тоже on) — RB валиден если выполнен ХОТЯ БЫ ОДИН
+   * источник: sweep ликвидности ИЛИ заход в FVG.
+   */
+  alsoAtFvg?: boolean;
+  /** Дополнительный источник: фитиль зашёл в ранее сформированный OB. */
+  alsoAtPrevBlock?: boolean;
+  /** Список FVG (нужен для alsoAtFvg). */
+  fvgZones?: readonly FvgZone[];
+  /** Список ранее найденных OB/BB (нужен для alsoAtPrevBlock). */
+  priorBlocks?: readonly OrderBlockZone[];
 }
 
 export function detectRejectionBlocks(
@@ -67,7 +84,17 @@ export function detectRejectionBlocks(
       const minPrice = c.low;
       const maxPrice = Math.min(c.open, c.close);
       const hasSweep = checkLowSweep(c, liquidityZones);
-      if (requireSweep && !hasSweep) continue;
+      // "Снятие" может произойти не только через ликвидность, но и
+      // через заход фитиля в FVG / предыдущий OB — если соответствующие
+      // опции включены.
+      const wickEnteredFvg = options.alsoAtFvg
+        ? wickEntersFvg(c, 'bull', options.fvgZones ?? [])
+        : false;
+      const wickEnteredPrev = options.alsoAtPrevBlock
+        ? wickEntersPrevBlock(c, 'bull', options.priorBlocks ?? [])
+        : false;
+      const validitySource = hasSweep || wickEnteredFvg || wickEnteredPrev;
+      if (requireSweep && !validitySource) continue;
       const mtPrice = (minPrice + maxPrice) / 2;
       const mit = findMitigation(arr, i + 1, 'bull', minPrice, maxPrice);
       out.push({
@@ -90,7 +117,14 @@ export function detectRejectionBlocks(
       const minPrice = Math.max(c.open, c.close);
       const maxPrice = c.high;
       const hasSweep = checkHighSweep(c, liquidityZones);
-      if (requireSweep && !hasSweep) continue;
+      const wickEnteredFvg = options.alsoAtFvg
+        ? wickEntersFvg(c, 'bear', options.fvgZones ?? [])
+        : false;
+      const wickEnteredPrev = options.alsoAtPrevBlock
+        ? wickEntersPrevBlock(c, 'bear', options.priorBlocks ?? [])
+        : false;
+      const validitySource = hasSweep || wickEnteredFvg || wickEnteredPrev;
+      if (requireSweep && !validitySource) continue;
       const mtPrice = (minPrice + maxPrice) / 2;
       const mit = findMitigation(arr, i + 1, 'bear', minPrice, maxPrice);
       out.push({
@@ -160,4 +194,44 @@ function findMitigation(
     }
   }
   return null;
+}
+
+/**
+ * Зашёл ли фитиль RB в существующий FVG того же направления?
+ *   bull RB (фитиль вниз): любой FVG, сформированный ранее, чей диапазон
+ *     [minPrice..maxPrice] пересекается с фитилём [candle.low .. bodyBot].
+ *   bear RB (фитиль вверх): то же сверху.
+ */
+function wickEntersFvg(
+  c: OhlcCandle,
+  kind: 'bull' | 'bear',
+  fvgs: readonly FvgZone[],
+): boolean {
+  const wickLo = kind === 'bull' ? c.low : Math.max(c.open, c.close);
+  const wickHi = kind === 'bull' ? Math.min(c.open, c.close) : c.high;
+  for (const f of fvgs) {
+    if (f.startTime >= c.timestamp) continue;
+    // Пересекаются ли [wickLo, wickHi] и [f.minPrice, f.maxPrice]?
+    if (wickHi < f.minPrice || wickLo > f.maxPrice) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Зашёл ли фитиль RB в ранее сформированный OB?
+ */
+function wickEntersPrevBlock(
+  c: OhlcCandle,
+  kind: 'bull' | 'bear',
+  priors: readonly OrderBlockZone[],
+): boolean {
+  const wickLo = kind === 'bull' ? c.low : Math.max(c.open, c.close);
+  const wickHi = kind === 'bull' ? Math.min(c.open, c.close) : c.high;
+  for (const ob of priors) {
+    if (ob.startTime >= c.timestamp) continue;
+    if (wickHi < ob.minPrice || wickLo > ob.maxPrice) continue;
+    return true;
+  }
+  return false;
 }

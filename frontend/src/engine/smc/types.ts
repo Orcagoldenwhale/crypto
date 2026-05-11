@@ -202,9 +202,21 @@ export interface SmcOptions {
   /**
    * Требовать ли для RB снятие ликвидности (sweep swing high/low).
    * Если true — RB-фитиль должен пробивать swing-точку, обнаруженную
-   * детектором ликвидности.
+   * детектором ликвидности. Может быть смягчено через rbAlsoAtFvg /
+   * rbAlsoAtPrevBlock (альтернативные источники "снятия").
    */
   rbRequireSweep: boolean;
+  /**
+   * Дополнительный источник валидности RB: фитиль зашёл в существующий
+   * FVG. Используется вместе с rbRequireSweep — расширяет понятие
+   * "снятия" на FVG-зону. Если rbRequireSweep=false, не влияет.
+   */
+  rbAlsoAtFvg: boolean;
+  /**
+   * Дополнительный источник валидности RB: фитиль зашёл в ранее
+   * сформированный OB/BB. Так же расширяет понятие "снятия".
+   */
+  rbAlsoAtPrevBlock: boolean;
 
   // ============== Liquidity =================
   /** Показывать EQH/EQL расположенные снаружи последнего range (external). */
@@ -303,6 +315,8 @@ export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
   obRequireAbsorption: false,
   rbWickRatio: 2,
   rbRequireSweep: true,
+  rbAlsoAtFvg: false,
+  rbAlsoAtPrevBlock: false,
   liqShowExternal: true,
   liqShowInternal: true,
   liqUseBslSslLabels: false,

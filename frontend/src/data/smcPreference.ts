@@ -148,6 +148,14 @@ export function loadSmcOptions(): SmcOptions {
       typeof obj.rbRequireSweep === 'boolean'
         ? obj.rbRequireSweep
         : DEFAULT_SMC_OPTIONS.rbRequireSweep,
+    rbAlsoAtFvg:
+      typeof obj.rbAlsoAtFvg === 'boolean'
+        ? obj.rbAlsoAtFvg
+        : DEFAULT_SMC_OPTIONS.rbAlsoAtFvg,
+    rbAlsoAtPrevBlock:
+      typeof obj.rbAlsoAtPrevBlock === 'boolean'
+        ? obj.rbAlsoAtPrevBlock
+        : DEFAULT_SMC_OPTIONS.rbAlsoAtPrevBlock,
     liqShowExternal:
       typeof obj.liqShowExternal === 'boolean'
         ? obj.liqShowExternal

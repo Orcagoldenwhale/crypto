@@ -135,10 +135,41 @@ export function runSmcAnalysis(
         equalityTolerancePct: options.equalityTolerancePct,
       })
     : liquidityRaw;
+  // FVG для RB-контекста — на лету если слой FVG выключен, но опция
+  // rbAlsoAtFvg включена.
+  const fvgForRb = layers.rejectionBlocks && options.rbAlsoAtFvg
+    ? (fvgs.length > 0 ? fvgs : findFVGs(candles, {
+        maxFillPct: options.fvgMaxFillPct,
+        minFvgPct: options.minFvgPct,
+      }))
+    : fvgs;
+  // Для контекста "wick зашёл в предыдущий OB" нужны уже найденные OB/BB.
+  const priorBlocksForRb = layers.rejectionBlocks && options.rbAlsoAtPrevBlock
+    ? [...orderBlocksRaw, ...breakerBlocksRaw.map((bb) => ({
+        // BreakerBlockZone → форма OrderBlockZone (нужны только поля
+        // что использует wickEntersPrevBlock: startTime, minPrice, maxPrice).
+        id: bb.id,
+        kind: bb.kind,
+        obTime: bb.obTime,
+        startTime: bb.startTime,
+        endTime: bb.endTime,
+        minPrice: bb.minPrice,
+        maxPrice: bb.maxPrice,
+        mtPrice: bb.mtPrice,
+        openPrice: bb.openPrice,
+        hasFvg: false,
+        unmitigated: bb.unmitigated,
+        breakKind: 'BOS' as const,
+      }))]
+    : [];
   const rejectionBlocksRaw = layers.rejectionBlocks
     ? detectRejectionBlocks(candles, liquidityForRb, {
         wickRatio: options.rbWickRatio,
         requireSweep: options.rbRequireSweep,
+        alsoAtFvg: options.rbAlsoAtFvg,
+        alsoAtPrevBlock: options.rbAlsoAtPrevBlock,
+        fvgZones: fvgForRb,
+        priorBlocks: priorBlocksForRb,
       })
     : [];
   const rejectionBlocks = hide.rejectionBlocks

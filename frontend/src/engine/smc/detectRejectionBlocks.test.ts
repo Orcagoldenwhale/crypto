@@ -98,4 +98,35 @@ describe('detectRejectionBlocks', () => {
     expect(result[0]!.unmitigated).toBe(false);
     expect(result[0]!.endTime).toBe(t(2));
   });
+
+  it('alsoAtFvg: RB валиден если фитиль зашёл в FVG (без sweep ликвидности)', () => {
+    // RB-свеча с длинным нижним фитилём, НЕ снимающим ликвидность,
+    // но заходящим в bull-FVG, сформированный ранее.
+    const candles: Candle15m[] = [
+      bar(t(0), 100, 100.3, 98, 100.2),    // wick down 98..100
+      bar(t(1), 100.2, 101, 100, 100.5),
+    ];
+    // Без sweep и без FVG-контекста — пусто.
+    expect(
+      detectRejectionBlocks(candles, [], { requireSweep: true }),
+    ).toEqual([]);
+
+    // FVG зона [97..99] — фитиль свечи (98..100) её пересекает.
+    const fvgs = [{
+      id: 'fvg1',
+      kind: 'bull' as const,
+      startTime: T0 - M15 * 5,
+      endTime: T0,
+      minPrice: 97,
+      maxPrice: 99,
+      unmitigated: true,
+    }];
+    const result = detectRejectionBlocks(candles, [], {
+      requireSweep: true,
+      alsoAtFvg: true,
+      fvgZones: fvgs,
+    });
+    expect(result).toHaveLength(1);
+    expect(result[0]!.kind).toBe('bull');
+  });
 });
