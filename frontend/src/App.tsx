@@ -56,6 +56,7 @@ import { BacktestPanel } from '@/components/BacktestPanel';
 import { HelpModal } from '@/components/HelpModal';
 import { runBacktest, collectZones, type SmcZoneRect } from '@/backtest/runBacktest';
 import type { BacktestSettings, BacktestReport as BacktestReportData } from '@/backtest/types';
+import { DEFAULT_BACKTEST_SETTINGS } from '@/backtest/types';
 import { candleDurationMs } from '@/engine/scale';
 import {
   computeAutoMultiplier,
@@ -182,6 +183,7 @@ export default function App() {
   const [backtestReport, setBacktestReport] = useState<BacktestReportData | null>(null);
   const [backtestRunning, setBacktestRunning] = useState(false);
   const [backtestZones, setBacktestZones] = useState<SmcZoneRect[]>([]);
+  const [backtestSettings, setBacktestSettings] = useState<BacktestSettings>(DEFAULT_BACKTEST_SETTINGS);
 
   // ============================================================================
   // Live-режим (real-time aggTrades с Binance, см. docs/04-live-mode.md)
@@ -1374,6 +1376,8 @@ export default function App() {
         {/* Панель бэктеста */}
         {backtestOpen && (
           <BacktestPanel
+            settings={backtestSettings}
+            onSettingsChange={setBacktestSettings}
             onRun={handleRunBacktest}
             report={backtestReport}
             running={backtestRunning}

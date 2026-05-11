@@ -1,20 +1,20 @@
 import { useState } from 'react';
 import { Play, Settings2, ChevronUp, ChevronDown } from 'lucide-react';
 import type { BacktestSettings, BacktestReport } from '@/backtest/types';
-import { DEFAULT_BACKTEST_SETTINGS } from '@/backtest/types';
 
 interface BacktestPanelProps {
+  settings: BacktestSettings;
+  onSettingsChange: (next: BacktestSettings) => void;
   onRun: (settings: BacktestSettings) => void;
   report: BacktestReport | null;
   running: boolean;
 }
 
-export function BacktestPanel({ onRun, report, running }: BacktestPanelProps) {
-  const [settings, setSettings] = useState<BacktestSettings>(DEFAULT_BACKTEST_SETTINGS);
+export function BacktestPanel({ settings, onSettingsChange, onRun, report, running }: BacktestPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   const update = <K extends keyof BacktestSettings>(key: K, value: BacktestSettings[K]) => {
-    setSettings((prev) => ({ ...prev, [key]: value }));
+    onSettingsChange({ ...settings, [key]: value });
   };
 
   return (
