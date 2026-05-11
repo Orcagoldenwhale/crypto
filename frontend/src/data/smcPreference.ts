@@ -115,6 +115,12 @@ export function loadSmcOptions(): SmcOptions {
       100,
       DEFAULT_SMC_OPTIONS.fvgMaxFillPct,
     ),
+    minFvgPct: clampNum(
+      obj.minFvgPct,
+      0,
+      5,
+      DEFAULT_SMC_OPTIONS.minFvgPct,
+    ),
   };
 }
 

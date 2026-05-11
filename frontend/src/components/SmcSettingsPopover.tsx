@@ -180,6 +180,24 @@ export function SmcSettingsPopover({
         />
       </Field>
 
+      <Field
+        label="Мин. FVG (%)"
+        hint="FVG меньше порога не отображаются"
+      >
+        <input
+          type="number"
+          min={0}
+          max={5}
+          step={0.05}
+          value={options.minFvgPct}
+          onChange={(e) => {
+            const v = parseFloat(e.target.value);
+            if (Number.isFinite(v)) setField('minFvgPct', clamp(v, 0, 5));
+          }}
+          className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
+        />
+      </Field>
+
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-medium text-tv-text">

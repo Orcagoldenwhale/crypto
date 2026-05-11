@@ -37,6 +37,8 @@ export interface DetectFvgOptions {
    * По умолчанию 0 — любое касание закрывает зону (старое поведение).
    */
   maxFillPct?: number;
+  /** Мин. размер FVG в % от цены. FVG меньше порога отбрасываются. */
+  minFvgPct?: number;
 }
 
 /**
@@ -152,5 +154,10 @@ function pushIfAllowed(
   options: DetectFvgOptions,
 ): void {
   if (options.hideMitigated && !zone.unmitigated) return;
+  if (options.minFvgPct && options.minFvgPct > 0) {
+    const height = zone.maxPrice - zone.minPrice;
+    const pct = (height / zone.minPrice) * 100;
+    if (pct < options.minFvgPct) return;
+  }
   out.push(zone);
 }

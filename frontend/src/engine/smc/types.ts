@@ -108,6 +108,8 @@ export interface SmcOptions {
   hideMitigated: SmcHideMitigated;
   /** FVG считается валидным, пока не перекрыт более чем на X% (0–100). */
   fvgMaxFillPct: number;
+  /** Мин. размер FVG в % от цены. FVG меньше порога не отображаются. */
+  minFvgPct: number;
 }
 
 /** Видимость каждого слоя (тогглы из Toolbox). */
@@ -144,6 +146,7 @@ export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
   lookback: 5,
   equalityTolerancePct: 0.0005,
   hideMitigated: DEFAULT_HIDE_MITIGATED,
+  minFvgPct: 0.1,
   fvgMaxFillPct: 50,
 });
 
