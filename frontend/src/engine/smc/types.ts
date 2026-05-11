@@ -227,6 +227,23 @@ export interface SmcOptions {
   obAllowMultiCandle: boolean;
   /** Максимальное число свеч в multi-candle OB (2..5). */
   obMultiCandleMax: number;
+
+  // ============== Контекст формирования OB (лекция OB §3) ==============
+  /**
+   * Только OB на снятии ликвидности: OB-свеча должна пробивать
+   * swing-уровень (BSL для bear OB, SSL для bull OB) из liquidityZones.
+   */
+  obRequireSweep: boolean;
+  /**
+   * Только Strong OB (с FVG): между OB-свечой и break-свечой должен
+   * быть 3-свечный gap. Использует существующий флаг `hasFvg`.
+   */
+  obRequireFvg: boolean;
+  /**
+   * Только OB на тесте предыдущего OB: OB-свеча должна попадать в
+   * диапазон ранее сформированного OB (фрактальная вложенность блоков).
+   */
+  obRequirePrevBlock: boolean;
 }
 
 /** Видимость каждого слоя (тогглы из Toolbox). */
@@ -290,6 +307,9 @@ export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
   liqCompressionMinPoints: 3,
   obAllowMultiCandle: false,
   obMultiCandleMax: 3,
+  obRequireSweep: false,
+  obRequireFvg: false,
+  obRequirePrevBlock: false,
 });
 
 export const DEFAULT_SMC_LAYERS: SmcLayers = Object.freeze({

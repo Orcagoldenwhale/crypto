@@ -19,7 +19,7 @@
  */
 
 import type { Candle1h, Candle15m, Candle5m } from '@/types';
-import type { ObExtractionMode, OrderBlockZone, StructureBreak } from './types';
+import type { LiquidityZone, ObExtractionMode, OrderBlockZone, StructureBreak } from './types';
 
 interface OhlcCandle {
   timestamp: number;
@@ -55,6 +55,16 @@ export interface DetectOrderBlocksOptions {
   allowMultiCandle?: boolean;
   /** Максимальная длина multi-candle OB. По умолчанию 3. */
   multiCandleMax?: number;
+  // ============== Контекстные фильтры (лекция OB §3) ==============
+  /**
+   * Только OB на снятии ликвидности: OB-свеча должна пробивать
+   * swing-уровень (для bull OB — пробить SSL low, для bear — BSL high).
+   */
+  requireSweep?: boolean;
+  /** Только OB на тесте предыдущего OB (фрактальная вложенность). */
+  requirePrevBlock?: boolean;
+  /** Список ликвидных зон (нужен для requireSweep). */
+  liquidityZones?: readonly LiquidityZone[];
 }
 
 export function detectOrderBlocks(
@@ -67,6 +77,10 @@ export function detectOrderBlocks(
   const lastTime = arr[arr.length - 1]!.timestamp;
 
   const out: OrderBlockZone[] = [];
+  // Хранит все OB-кандидаты (даже отброшенные фильтром requirePrevBlock),
+  // чтобы фильтр работал по полному списку предыдущих блоков, а не только
+  // по уже прошедшим. Иначе первый OB без предка отбрасывает всю цепочку.
+  const allCandidates: { obTime: number; minPrice: number; maxPrice: number }[] = [];
   // Дедуп по «отправной» свече и направлению — чтобы серия BOS'ов не
   // плодила копии одного и того же OB.
   const seen = new Set<string>();
@@ -92,6 +106,22 @@ export function detectOrderBlocks(
 
     const kind: OrderBlockZone['kind'] = sb.dir === 'up' ? 'bull' : 'bear';
     const extraction = options.extraction ?? 'wicks';
+
+    // ===== Контекстные фильтры из лекции OB §3 =====
+    // Применяются по схеме AND: если несколько включены — должны выполниться все.
+    if (options.requireSweep) {
+      if (!candleSweepsLiquidity(ob, kind, options.liquidityZones ?? [])) continue;
+    }
+    if (options.requirePrevBlock) {
+      // Используем allCandidates (а не out) — иначе фильтр инвалидировал бы
+      // самый ранний OB и обрывал бы всю цепочку.
+      if (!candleInsidePrevOb(ob, allCandidates)) {
+        // Всё равно регистрируем как кандидата для последующих проверок.
+        allCandidates.push({ obTime: ob.timestamp, minPrice: ob.low, maxPrice: ob.high });
+        continue;
+      }
+    }
+    allCandidates.push({ obTime: ob.timestamp, minPrice: ob.low, maxPrice: ob.high });
 
     // Multi-candle OB: расширяем цепочкой однонаправленных свеч назад от obIdx,
     // пока они той же полярности и не дальше multiCandleMax от obIdx.
@@ -356,6 +386,47 @@ function checkAbsorption(
     const c = arr[k]!;
     if (kind === 'bull' && c.close > obBodyTop) return true;
     if (kind === 'bear' && c.close < obBodyBot) return true;
+  }
+  return false;
+}
+
+/**
+ * Проверяет, "снимает" ли OB-свеча ликвидность:
+ *   bull OB (нисходящая свеча перед импульсом вверх) — её low должен
+ *     пробить SSL (low-liquidity), сформированную ДО этой свечи.
+ *   bear OB — её high должен пробить BSL (high-liquidity).
+ */
+function candleSweepsLiquidity(
+  c: OhlcCandle,
+  kind: 'bull' | 'bear',
+  zones: readonly LiquidityZone[],
+): boolean {
+  for (const z of zones) {
+    if (z.startTime >= c.timestamp) continue;
+    if (kind === 'bull') {
+      // SSL = low-liquidity. Свеча проколола её снизу: low <= price.
+      if (z.kind === 'low' && c.low <= z.price) return true;
+    } else {
+      // BSL = high-liquidity. Свеча проколола сверху: high >= price.
+      if (z.kind === 'high' && c.high >= z.price) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Проверяет, попадает ли диапазон OB-свечи внутрь ранее сформированного OB.
+ * Используется для фильтра "OB на тесте предыдущего блока".
+ */
+function candleInsidePrevOb(
+  c: OhlcCandle,
+  priorObs: readonly { obTime: number; minPrice: number; maxPrice: number }[],
+): boolean {
+  for (const prev of priorObs) {
+    if (prev.obTime >= c.timestamp) continue;
+    // Пересекаются ли диапазоны [c.low, c.high] и [prev.minPrice, prev.maxPrice]?
+    if (c.high < prev.minPrice || c.low > prev.maxPrice) continue;
+    return true;
   }
   return false;
 }

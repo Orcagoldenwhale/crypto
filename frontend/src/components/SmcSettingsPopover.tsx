@@ -275,6 +275,33 @@ export function SmcSettingsPopover({
                   checked={options.obRequireAbsorption}
                   onChange={(v) => setField('obRequireAbsorption', v)}
                 />
+
+                <div className="border-t border-tv-border/40 pt-2">
+                  <p className="mb-1 text-[10px] uppercase tracking-wider text-tv-text-muted">
+                    Контекст формирования (лекция §3)
+                  </p>
+                  <div className="flex flex-col gap-2">
+                    <CheckboxRow
+                      label="Только OB на снятии ликвидности"
+                      hint="OB-свеча должна пробивать swing-уровень (SSL/BSL)"
+                      checked={options.obRequireSweep}
+                      onChange={(v) => setField('obRequireSweep', v)}
+                    />
+                    <CheckboxRow
+                      label="Только Strong OB (с FVG)"
+                      hint="между OB и break-свечой должен быть Fair Value Gap"
+                      checked={options.obRequireFvg}
+                      onChange={(v) => setField('obRequireFvg', v)}
+                    />
+                    <CheckboxRow
+                      label="Только OB на тесте предыдущего OB"
+                      hint="OB-свеча должна попадать в диапазон ранее сформированного OB"
+                      checked={options.obRequirePrevBlock}
+                      onChange={(v) => setField('obRequirePrevBlock', v)}
+                    />
+                  </div>
+                </div>
+
                 <CheckboxRow
                   label="Multi-candle OB (STB/BTS)"
                   hint="расширять OB на серию однонаправленных свеч перед break"
