@@ -509,10 +509,10 @@ export default function App() {
    * ChartCanvas просто ничего не рисовал.
    */
   const smcOverlay = useMemo(() => {
-    if (!htfBehaviour) return EMPTY_SMC_OVERLAY;
-    if (chartData.length === 0) return EMPTY_SMC_OVERLAY;
-    return runSmcAnalysis(chartData, smcLayers, smcOpts);
-  }, [htfBehaviour, chartData, smcLayers, smcOpts]);
+    const sourceData = isSingleTf ? chartData : htfData;
+    if (sourceData.length === 0) return EMPTY_SMC_OVERLAY;
+    return runSmcAnalysis(sourceData, smcLayers, smcOpts);
+  }, [isSingleTf, chartData, htfData, smcLayers, smcOpts]);
 
   const handleToggleSmcLayer = useCallback((layer: keyof SmcLayers) => {
     setSmcLayers((prev) => ({ ...prev, [layer]: !prev[layer] }));
@@ -1347,7 +1347,7 @@ export default function App() {
           selectedZoneId={selectedZoneId}
           signals={signals}
           selectedSignalId={selectedSignalId}
-          smcOverlay={smcOverlay}
+          smcOverlay={htfBehaviour ? smcOverlay : EMPTY_SMC_OVERLAY}
           onCreateZone={handleCreateZone}
           onZoneClick={handleZoneClick}
           onClickEmpty={handleClickEmpty}
