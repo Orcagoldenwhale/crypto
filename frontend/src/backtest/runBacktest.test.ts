@@ -283,7 +283,7 @@ describe('runBacktest', () => {
     expect(report.trades[0]!.entryPrice).toBe(100);
   });
 
-  it('slBehindWick: SL устанавливается на minPrice зоны', () => {
+  it('slBehindObWick: SL устанавливается на minPrice зоны для OB', () => {
     const overlay: SmcOverlay = {
       fvgs: [],
       liquidity: [],
@@ -319,11 +319,50 @@ describe('runBacktest', () => {
       stopPct: 0.3,
       zoneGapPct: 0,
       fvgMaxFillPct: 100,
-      slBehindWick: true,
+      slBehindObWick: true,
     };
     const report = runBacktest(candles, overlay, settings);
     expect(report.totalTrades).toBe(1);
     // SL = minPrice зоны = 95
     expect(report.trades[0]!.stopPrice).toBe(95);
+  });
+
+  it('slBehindFvgEdge: SL устанавливается на дальней границе FVG', () => {
+    const overlay: SmcOverlay = {
+      fvgs: [
+        {
+          id: 'fvg1',
+          kind: 'bull',
+          startTime: T0,
+          endTime: T0 + MS5 * 10,
+          minPrice: 99,
+          maxPrice: 101,
+          unmitigated: true,
+        },
+      ],
+      liquidity: [],
+      structure: [],
+      orderBlocks: [],
+      breakerBlocks: [],
+      rejectionBlocks: [],
+      prevDayLevels: [],
+      compressions: [],
+    };
+    const candles: Candle5m[] = [
+      makeCandle(T0, 100, 101, 99, 100, 0, 100, 0, 0),
+      makeCandle(T0 + MS5, 100, 101, 99, 100.8, 10, 100, -5, 2),
+      makeCandle(T0 + MS5 * 2, 100.8, 108, 100.5, 107, 5, 104, -1, 1),
+    ];
+    const settings: BacktestSettings = {
+      ...DEFAULT_BACKTEST_SETTINGS,
+      stopPct: 0.3,
+      zoneGapPct: 0,
+      fvgMaxFillPct: 100,
+      slBehindFvgEdge: true,
+    };
+    const report = runBacktest(candles, overlay, settings);
+    expect(report.totalTrades).toBe(1);
+    // SL = minPrice FVG = 99 (gap=0%, без расширения)
+    expect(report.trades[0]!.stopPrice).toBe(99);
   });
 });

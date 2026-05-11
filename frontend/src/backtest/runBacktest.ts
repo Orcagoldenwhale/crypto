@@ -300,10 +300,13 @@ export function runBacktest(
       matched = true;
 
       // ---- Stop-loss ----
+      // Выбираем SL за границей зоны если соответствующая галочка включена
+      // для типа зоны. Иначе — обычный % от цены входа.
       let stopPrice: Price;
-      if (settings.slBehindWick && zone.obKind !== null) {
-        // SL за фитилём зоны (учитываем gap-расширение собственно SmcZoneRect).
-        stopPrice = (type === 'LONG' ? zone.minPrice : zone.maxPrice);
+      const useObSl = settings.slBehindObWick && zone.obKind !== null;
+      const useFvgSl = settings.slBehindFvgEdge && zone.fvgKind !== null;
+      if (useObSl || useFvgSl) {
+        stopPrice = type === 'LONG' ? zone.minPrice : zone.maxPrice;
       } else {
         const stopOffset = entryPrice * (settings.stopPct / 100);
         stopPrice = type === 'LONG' ? entryPrice - stopOffset : entryPrice + stopOffset;

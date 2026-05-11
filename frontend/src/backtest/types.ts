@@ -37,7 +37,12 @@ export interface BacktestSettings {
    * (min/maxPrice), игнорируя stopPct. Reward считается от
    * актуального риска (entry − SL).
    */
-  slBehindWick: boolean;
+  slBehindObWick: boolean;
+  /**
+   * Если true — для входов из FVG ставить SL за дальней границей
+   * гэпа (minPrice для bull / maxPrice для bear), игнорируя stopPct.
+   */
+  slBehindFvgEdge: boolean;
   /**
    * Если true — OB остаётся валидным для входа пока тело свечи не
    * закрылось за Mean Threshold (50% тела OB). При закрытии тела за MT
@@ -57,7 +62,8 @@ export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
   debugLog: false,
   reentryAfterWin: false,
   entryPoint: 'close',
-  slBehindWick: false,
+  slBehindObWick: false,
+  slBehindFvgEdge: false,
   validityByMt: false,
 };
 

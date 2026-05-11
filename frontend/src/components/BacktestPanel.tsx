@@ -53,7 +53,7 @@ export function BacktestPanel({ settings, onSettingsChange, onRun, report, runni
                   min={0.05}
                   max={10}
                   step={0.05}
-                  disabled={settings.slBehindWick}
+                  disabled={settings.slBehindObWick && settings.slBehindFvgEdge}
                   onChange={(v) => update('stopPct', v)}
                 />
               </Row>
@@ -67,10 +67,16 @@ export function BacktestPanel({ settings, onSettingsChange, onRun, report, runni
                 />
               </Row>
               <Toggle
-                label="SL за фитилём зоны"
+                label="SL за фитилём OB"
                 hint="для OB/BB/RB ставить SL на границе зоны вместо stopPct"
-                checked={settings.slBehindWick}
-                onChange={(v) => update('slBehindWick', v)}
+                checked={settings.slBehindObWick}
+                onChange={(v) => update('slBehindObWick', v)}
+              />
+              <Toggle
+                label="SL за дальней границей FVG"
+                hint="для входов из FVG ставить SL на дальнем краю гэпа вместо stopPct"
+                checked={settings.slBehindFvgEdge}
+                onChange={(v) => update('slBehindFvgEdge', v)}
               />
             </Section>
 
