@@ -21,6 +21,8 @@ export interface BacktestSettings {
   minFvgPct: number;
   /** Включить диагностический лог (запись в backtest-log.txt). */
   debugLog: boolean;
+  /** Разрешить перезаходы в зону даже после успешной сделки (win). */
+  reentryAfterWin: boolean;
 }
 
 export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
@@ -32,6 +34,7 @@ export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
   maxCandleBodyPct: 1,
   minFvgPct: 0.1,
   debugLog: false,
+  reentryAfterWin: false,
 };
 
 /** Одна сделка бэктеста. */

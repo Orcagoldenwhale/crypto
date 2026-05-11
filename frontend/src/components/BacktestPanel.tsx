@@ -90,6 +90,16 @@ export function BacktestPanel({ settings, onSettingsChange, onRun, report, runni
               />
             </SettingRow>
 
+            <label className="flex cursor-pointer items-center justify-between" title="Разрешить заходить в зону снова после успешной сделки (win)">
+              <span className="text-[11px] text-tv-text">Перезаход после win</span>
+              <input
+                type="checkbox"
+                checked={settings.reentryAfterWin}
+                onChange={(e) => update('reentryAfterWin', e.target.checked)}
+                className="h-3.5 w-3.5 accent-tv-accent"
+              />
+            </label>
+
             <label className="flex cursor-pointer items-center justify-between" title="Записывать backtest-log.txt с причинами отказа по каждому сигналу">
               <span className="text-[11px] text-tv-text">Debug лог</span>
               <input

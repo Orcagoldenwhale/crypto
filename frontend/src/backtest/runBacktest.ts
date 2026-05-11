@@ -270,7 +270,7 @@ export function runBacktest(
         pnlR,
       });
 
-      if (outcome === 'loss') {
+      if (outcome === 'loss' || settings.reentryAfterWin) {
         zoneEntryCount.set(zone.id, count + 1);
       } else {
         zoneEntryCount.set(zone.id, settings.maxReentries + 1);
