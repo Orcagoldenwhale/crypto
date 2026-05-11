@@ -39,7 +39,7 @@ export function runSmcAnalysis(
   // FVG: фильтр прокидываем прямо в детектор — он умеет отсеивать mitigated
   // зоны на этапе сборки, без постобработки.
   const fvgs = layers.fvg
-    ? findFVGs(candles, { hideMitigated: hide.fvg })
+    ? findFVGs(candles, { hideMitigated: hide.fvg, maxFillPct: options.fvgMaxFillPct })
     : [];
 
   // Liquidity: после детекта прячем уже снятые (sweep случился).

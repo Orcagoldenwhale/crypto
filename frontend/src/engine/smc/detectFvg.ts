@@ -28,10 +28,15 @@ interface OhlcCandle {
 
 export interface DetectFvgOptions {
   /**
-   * Прятать ли уже закрытые FVG (отработанные касанием цены).
+   * Прятать ли уже закрытые FVG (отработанные заполнением цены).
    * Если false — отдаём все, в зоне `unmitigated: false`.
    */
   hideMitigated?: boolean;
+  /**
+   * FVG считается mitigated, когда перекрыт более чем на X% (0–100).
+   * По умолчанию 0 — любое касание закрывает зону (старое поведение).
+   */
+  maxFillPct?: number;
 }
 
 /**
@@ -52,9 +57,8 @@ export function findFVGs(
   const n = candles.length;
   if (n < 3) return [];
 
+  const maxFillPct = options.maxFillPct ?? 0;
   const out: FvgZone[] = [];
-  // Касается общая граница времени для НЕ-mitigated зон — они расширяются
-  // до последней свечи, чтобы при панораме график показывал актуальный край.
   const lastTime = candles[n - 1]!.timestamp;
 
   for (let i = 1; i < n - 1; i++) {
@@ -74,12 +78,12 @@ export function findFVGs(
         maxPrice: next.low,
         candles,
         lastTime,
+        maxFillPct,
       });
       pushIfAllowed(out, zone, options);
       continue;
     }
 
-    // Bear FVG: high[i+1] строго ниже low[i-1]
     if (next.high < prev.low) {
       const zone = buildAndMitigate({
         kind: 'bear',
@@ -89,6 +93,7 @@ export function findFVGs(
         maxPrice: prev.low,
         candles,
         lastTime,
+        maxFillPct,
       });
       pushIfAllowed(out, zone, options);
     }
@@ -105,21 +110,25 @@ interface BuildArgs {
   maxPrice: number;
   candles: readonly OhlcCandle[];
   lastTime: number;
+  maxFillPct: number;
 }
 
 function buildAndMitigate(a: BuildArgs): FvgZone {
-  const { kind, startIdx, startTime, minPrice, maxPrice, candles, lastTime } = a;
-  // Mitigation ищем НАЧИНАЯ со свечи i+2 (после displacement-тройки).
-  // Это устоявшаяся практика: если цена не вышла из тройки сразу, разрыв
-  // считается реальным и его потом тестируют.
+  const { kind, startIdx, startTime, minPrice, maxPrice, candles, lastTime, maxFillPct } = a;
   const mitStart = startIdx + 3;
+  const height = maxPrice - minPrice;
   let endTime = lastTime;
   let unmitigated = true;
+  let peakFill = 0;
+
   for (let k = mitStart; k < candles.length; k++) {
     const c = candles[k]!;
-    const touched =
-      kind === 'bull' ? c.low <= maxPrice : c.high >= minPrice;
-    if (touched) {
+    const penetration = kind === 'bull'
+      ? maxPrice - c.low
+      : c.high - minPrice;
+    const fillPct = height > 0 ? Math.max(0, (penetration / height) * 100) : 0;
+    if (fillPct > peakFill) peakFill = fillPct;
+    if (peakFill > maxFillPct) {
       endTime = c.timestamp;
       unmitigated = false;
       break;

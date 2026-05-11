@@ -51,6 +51,7 @@ describe('runSmcAnalysis · per-layer hideMitigated', () => {
     const overlay = runSmcAnalysis(candles, DEFAULT_SMC_LAYERS, {
       ...DEFAULT_SMC_OPTIONS,
       lookback: 2,
+      fvgMaxFillPct: 0,
       hideMitigated: { ...DEFAULT_HIDE_MITIGATED },
     });
     expect(overlay.fvgs.length).toBeGreaterThanOrEqual(1);
@@ -62,11 +63,13 @@ describe('runSmcAnalysis · per-layer hideMitigated', () => {
     const baseline = runSmcAnalysis(candles, DEFAULT_SMC_LAYERS, {
       ...DEFAULT_SMC_OPTIONS,
       lookback: 2,
+      fvgMaxFillPct: 0,
       hideMitigated: { ...DEFAULT_HIDE_MITIGATED },
     });
     const overlay = runSmcAnalysis(candles, DEFAULT_SMC_LAYERS, {
       ...DEFAULT_SMC_OPTIONS,
       lookback: 2,
+      fvgMaxFillPct: 0,
       hideMitigated: { ...DEFAULT_HIDE_MITIGATED, fvg: true },
     });
     // FVG: после фильтра остаются только живые.
@@ -82,6 +85,7 @@ describe('runSmcAnalysis · per-layer hideMitigated', () => {
     const overlay = runSmcAnalysis(candles, DEFAULT_SMC_LAYERS, {
       ...DEFAULT_SMC_OPTIONS,
       lookback: 2,
+      fvgMaxFillPct: 0,
       hideMitigated: { ...DEFAULT_HIDE_MITIGATED, liquidity: true },
     });
     for (const liq of overlay.liquidity) expect(liq.sweep).toBeNull();
@@ -94,6 +98,7 @@ describe('runSmcAnalysis · per-layer hideMitigated', () => {
     const overlay = runSmcAnalysis(candles, DEFAULT_SMC_LAYERS, {
       ...DEFAULT_SMC_OPTIONS,
       lookback: 2,
+      fvgMaxFillPct: 0,
       hideMitigated: { ...DEFAULT_HIDE_MITIGATED, structure: true },
     });
     for (const sb of overlay.structure) expect(sb.retestTime).toBeNull();
@@ -103,6 +108,7 @@ describe('runSmcAnalysis · per-layer hideMitigated', () => {
     const overlay = runSmcAnalysis(candles, DEFAULT_SMC_LAYERS, {
       ...DEFAULT_SMC_OPTIONS,
       lookback: 2,
+      fvgMaxFillPct: 0,
       hideMitigated: { ...DEFAULT_HIDE_MITIGATED, orderBlocks: true },
     });
     for (const ob of overlay.orderBlocks) expect(ob.unmitigated).toBe(true);
@@ -112,6 +118,7 @@ describe('runSmcAnalysis · per-layer hideMitigated', () => {
     const overlay = runSmcAnalysis(candles, DEFAULT_SMC_LAYERS, {
       ...DEFAULT_SMC_OPTIONS,
       lookback: 2,
+      fvgMaxFillPct: 0,
       hideMitigated: {
         fvg: true,
         liquidity: true,
