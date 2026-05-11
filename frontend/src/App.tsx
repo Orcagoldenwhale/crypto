@@ -1350,6 +1350,7 @@ export default function App() {
           signals={signals}
           selectedSignalId={selectedSignalId}
           smcOverlay={htfBehaviour ? smcOverlay : EMPTY_SMC_OVERLAY}
+          liqUseBslSslLabels={smcOpts.liqUseBslSslLabels}
           onCreateZone={handleCreateZone}
           onZoneClick={handleZoneClick}
           onClickEmpty={handleClickEmpty}

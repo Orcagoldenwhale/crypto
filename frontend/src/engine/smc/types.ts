@@ -53,7 +53,7 @@ export interface FvgZone {
  */
 export interface LiquidityZone {
   id: SmcZoneId;
-  /** 'high' (equal highs, бычья ловушка) | 'low' (equal lows, медвежья). */
+  /** 'high' (equal highs = BSL, бычья ловушка) | 'low' (equal lows = SSL). */
   kind: 'high' | 'low';
   /** Цена линии (среднее по equal-points). */
   price: Price;
@@ -68,6 +68,38 @@ export interface LiquidityZone {
    * закрылась обратно. Если есть — рисуем как «снятая ловушка».
    */
   sweep: SweepEvent | null;
+  /**
+   * Расположение уровня относительно последнего структурного диапазона:
+   * - 'external': уровень ВЫШЕ последнего swing high (для high)
+   *               или НИЖЕ последнего swing low (для low).
+   *               Главные цели крупных участников.
+   * - 'internal': уровень внутри последнего range — промежуточная
+   *               ликвидность, чаще снимается по пути.
+   * - 'unknown': не удалось классифицировать (нет структуры).
+   */
+  position: 'internal' | 'external' | 'unknown';
+}
+
+/**
+ * PDH/PDL — максимум/минимум предыдущего дня.
+ *
+ * Классическая концепция ликвидности из лекции: интрадей-цели для цены.
+ * После пересечения уровень "теряет актуальность" — помечаем как mitigated.
+ */
+export interface PrevDayLevelZone {
+  id: SmcZoneId;
+  /** 'high' = PDH (BSL); 'low' = PDL (SSL). */
+  kind: 'high' | 'low';
+  /** Цена уровня. */
+  price: Price;
+  /** Начало действия — 00:00 UTC дня после периода-источника. */
+  startTime: TimestampMs;
+  /** Конец действия — либо время пересечения, либо последняя свеча. */
+  endTime: TimestampMs;
+  /** Дата периода-источника (ISO, YYYY-MM-DD). */
+  sourceDate: string;
+  /** true — цена ещё не пересекала уровень. */
+  unmitigated: boolean;
 }
 
 export interface SweepEvent {
@@ -145,6 +177,16 @@ export interface SmcOptions {
    * детектором ликвидности.
    */
   rbRequireSweep: boolean;
+
+  // ============== Liquidity =================
+  /** Показывать EQH/EQL расположенные снаружи последнего range (external). */
+  liqShowExternal: boolean;
+  /** Показывать EQH/EQL внутри последнего range (internal). */
+  liqShowInternal: boolean;
+  /** Подписывать уровни как BSL/SSL вместо EQH/EQL. */
+  liqUseBslSslLabels: boolean;
+  /** Включить отдельный слой Previous Day High/Low. */
+  liqShowPrevDay: boolean;
 }
 
 /** Видимость каждого слоя (тогглы из Toolbox). */
@@ -165,6 +207,7 @@ export interface SmcOverlay {
   orderBlocks: readonly OrderBlockZone[];
   breakerBlocks: readonly BreakerBlockZone[];
   rejectionBlocks: readonly RejectionBlockZone[];
+  prevDayLevels: readonly PrevDayLevelZone[];
 }
 
 export const EMPTY_SMC_OVERLAY: SmcOverlay = Object.freeze({
@@ -174,6 +217,7 @@ export const EMPTY_SMC_OVERLAY: SmcOverlay = Object.freeze({
   orderBlocks: [],
   breakerBlocks: [],
   rejectionBlocks: [],
+  prevDayLevels: [],
 });
 
 export const DEFAULT_HIDE_MITIGATED: SmcHideMitigated = Object.freeze({
@@ -196,6 +240,10 @@ export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
   obRequireAbsorption: false,
   rbWickRatio: 2,
   rbRequireSweep: true,
+  liqShowExternal: true,
+  liqShowInternal: true,
+  liqUseBslSslLabels: false,
+  liqShowPrevDay: false,
 });
 
 export const DEFAULT_SMC_LAYERS: SmcLayers = Object.freeze({

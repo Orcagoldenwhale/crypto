@@ -177,13 +177,46 @@ export function SmcSettingsPopover({
               />
             </SectionCard>
 
-            <SectionCard title="Liquidity" subtitle="Equal highs / lows, sweeps">
-              <CheckboxRow
-                label="Прятать отработанные"
-                hint="ликвидность уже снята (был sweep)"
-                checked={options.hideMitigated.liquidity}
-                onChange={(v) => setHide('liquidity', v)}
-              />
+            <SectionCard title="Liquidity" subtitle="Equal highs / lows, PDH/PDL">
+              <SubSection title="EQH / EQL">
+                <CheckboxRow
+                  label="External (за пределами range)"
+                  hint="главные цели — уровни выше последнего swing high / ниже swing low"
+                  checked={options.liqShowExternal}
+                  onChange={(v) => setField('liqShowExternal', v)}
+                />
+                <CheckboxRow
+                  label="Internal (внутри range)"
+                  hint="промежуточная ликвидность — чаще снимается по пути"
+                  checked={options.liqShowInternal}
+                  onChange={(v) => setField('liqShowInternal', v)}
+                />
+                <CheckboxRow
+                  label="Подписи как BSL/SSL"
+                  hint="вместо EQH/EQL использовать BSL (buy-side) / SSL (sell-side)"
+                  checked={options.liqUseBslSslLabels}
+                  onChange={(v) => setField('liqUseBslSslLabels', v)}
+                />
+                <CheckboxRow
+                  label="Прятать отработанные"
+                  hint="ликвидность уже снята (был sweep)"
+                  checked={options.hideMitigated.liquidity}
+                  onChange={(v) => setHide('liquidity', v)}
+                />
+              </SubSection>
+
+              <SubSection
+                title="Previous Day (PDH/PDL)"
+                subtitle="Максимум/минимум предыдущего дня — интрадей-цели"
+                enableLabel="Включить"
+                enabled={options.liqShowPrevDay}
+                onEnabledChange={(v) => setField('liqShowPrevDay', v)}
+              >
+                <p className="text-[10px] text-tv-text-muted">
+                  Линии рисуются с 00:00 UTC следующего дня. После пересечения
+                  ценой — становятся серыми (теряют актуальность).
+                </p>
+              </SubSection>
             </SectionCard>
 
             <SectionCard title="Structure" subtitle="BOS / CHoCH + retest">

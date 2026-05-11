@@ -14,11 +14,14 @@ import { detectStructure } from './detectStructure';
 import { detectOrderBlocks } from './detectOrderBlocks';
 import { detectBreakerBlocks } from './detectBreakerBlocks';
 import { detectRejectionBlocks } from './detectRejectionBlocks';
+import { detectPrevDayLevels } from './detectPrevDayLevels';
 import {
   EMPTY_SMC_OVERLAY,
+  type LiquidityZone,
   type SmcLayers,
   type SmcOptions,
   type SmcOverlay,
+  type StructureBreak,
 } from './types';
 
 export function runSmcAnalysis(
@@ -33,7 +36,8 @@ export function runSmcAnalysis(
     !layers.structure &&
     !layers.orderBlocks &&
     !layers.breakerBlocks &&
-    !layers.rejectionBlocks
+    !layers.rejectionBlocks &&
+    !options.liqShowPrevDay
   ) {
     return EMPTY_SMC_OVERLAY;
   }
@@ -46,24 +50,29 @@ export function runSmcAnalysis(
     ? findFVGs(candles, { hideMitigated: hide.fvg, maxFillPct: options.fvgMaxFillPct, minFvgPct: options.minFvgPct })
     : [];
 
-  // Liquidity: после детекта прячем уже снятые (sweep случился).
+  // Сначала структура (breaks) — нужна для классификации liquidity
+  // и для OB/BB. Считаем всегда если что-то из зависимых слоёв включено.
+  const needsBreaks =
+    layers.structure || layers.orderBlocks || layers.breakerBlocks || layers.liquidity;
+  const allBreaks = needsBreaks
+    ? detectStructure(candles, { lookback: options.lookback })
+    : [];
+
+  // Liquidity: сначала детект, затем классификация internal/external,
+  // затем фильтр по toggle, затем hideMitigated.
   const liquidityRaw = layers.liquidity
     ? findLiquidityZones(candles, {
         lookback: options.lookback,
         equalityTolerancePct: options.equalityTolerancePct,
       })
     : [];
-  const liquidity = hide.liquidity
-    ? liquidityRaw.filter((l) => l.sweep === null)
-    : liquidityRaw;
-
-  // OB зависит от структуры: если пользователь скрыл слой structure, но
-  // просит OB — мы всё равно считаем breaks, просто не отдаём их в overlay.
-  // BB также требует и breaks, и OB.
-  const needsBreaks = layers.structure || layers.orderBlocks || layers.breakerBlocks;
-  const allBreaks = needsBreaks
-    ? detectStructure(candles, { lookback: options.lookback })
-    : [];
+  const liquidityClassified = classifyLiquidityPosition(liquidityRaw, allBreaks);
+  let liquidity = liquidityClassified.filter((l) => {
+    if (l.position === 'external' && !options.liqShowExternal) return false;
+    if (l.position === 'internal' && !options.liqShowInternal) return false;
+    return true;
+  });
+  if (hide.liquidity) liquidity = liquidity.filter((l) => l.sweep === null);
 
   // Structure: прячем уже ретестнутые break'и — сетап считаем отработанным.
   const structureRaw = layers.structure ? allBreaks : [];
@@ -112,7 +121,52 @@ export function runSmcAnalysis(
     ? rejectionBlocksRaw.filter((rb) => rb.unmitigated)
     : rejectionBlocksRaw;
 
-  return { fvgs, liquidity, structure, orderBlocks, breakerBlocks, rejectionBlocks };
+  // Previous Day High/Low — отдельный слой, управляется liqShowPrevDay.
+  const prevDayLevelsRaw = options.liqShowPrevDay
+    ? detectPrevDayLevels(candles)
+    : [];
+  const prevDayLevels = hide.liquidity
+    ? prevDayLevelsRaw.filter((p) => p.unmitigated)
+    : prevDayLevelsRaw;
+
+  return { fvgs, liquidity, structure, orderBlocks, breakerBlocks, rejectionBlocks, prevDayLevels };
+}
+
+/**
+ * Помечает каждую liquidity-зону как internal/external относительно
+ * последнего структурного диапазона.
+ *
+ * Определяем "последний range" как: цена swing-точки последнего пробоя
+ * (levelTime) и противоположный экстремум среди break'ов. Упрощённо:
+ *   - если уровень ВЫШЕ всех level из breaks → external (high)
+ *   - если уровень НИЖЕ всех level из breaks → external (low)
+ *   - иначе → internal.
+ *
+ * Если breaks пустой — все уровни external (нет структуры для сравнения).
+ */
+function classifyLiquidityPosition(
+  zones: readonly LiquidityZone[],
+  breaks: readonly StructureBreak[],
+): LiquidityZone[] {
+  if (zones.length === 0) return [];
+  if (breaks.length === 0) {
+    return zones.map((z) => ({ ...z, position: 'external' as const }));
+  }
+  let maxLevel = -Infinity;
+  let minLevel = Infinity;
+  for (const b of breaks) {
+    if (b.level > maxLevel) maxLevel = b.level;
+    if (b.level < minLevel) minLevel = b.level;
+  }
+  return zones.map((z) => {
+    let position: LiquidityZone['position'];
+    if (z.kind === 'high') {
+      position = z.price >= maxLevel ? 'external' : 'internal';
+    } else {
+      position = z.price <= minLevel ? 'external' : 'internal';
+    }
+    return { ...z, position };
+  });
 }
 
 export * from './types';
@@ -122,4 +176,5 @@ export { detectStructure } from './detectStructure';
 export { detectOrderBlocks } from './detectOrderBlocks';
 export { detectBreakerBlocks } from './detectBreakerBlocks';
 export { detectRejectionBlocks } from './detectRejectionBlocks';
+export { detectPrevDayLevels } from './detectPrevDayLevels';
 export { renderSmcOverlay } from './render';

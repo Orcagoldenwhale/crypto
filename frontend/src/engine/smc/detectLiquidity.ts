@@ -192,6 +192,8 @@ function buildZone(
     endTime: sweep ? sweep.time : lastTime,
     touches: group.points.length,
     sweep,
+    // Заполняется на этапе аналитики (runSmcAnalysis) когда есть структура.
+    position: 'unknown',
   };
 }
 

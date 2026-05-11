@@ -87,6 +87,8 @@ interface ChartCanvasProps {
    * паре игнорируется — там фокус на маркерах сигналов и footprint.
    */
   smcOverlay?: SmcOverlay;
+  /** Использовать BSL/SSL вместо EQH/EQL в подписях ликвидности. */
+  liqUseBslSslLabels?: boolean;
   /** Свеча под курсором — для StatusBar (передаём наружу). */
   onHoverCandle?: (candle: Candle5m | Candle15m | Candle1h | null) => void;
   /** Кластер под курсором — для тултипа (рендерится в App). */
@@ -126,6 +128,7 @@ export function ChartCanvas({
   onClickEmpty,
   onSelectSignal,
   smcOverlay,
+  liqUseBslSslLabels,
   onHoverCandle,
   onHoverCluster,
   onViewportApi,
@@ -348,7 +351,7 @@ export function ChartCanvas({
       // Рисуем ПОСЛЕ свечей, но ДО маркеров сигналов/подсветки, чтобы
       // зоны не закрывали интерактивные элементы.
       if (htfBehaviour && smcOverlay) {
-        renderSmcOverlay({ ctx, metrics, viewport, overlay: smcOverlay });
+        renderSmcOverlay({ ctx, metrics, viewport, overlay: smcOverlay, useBslSslLabels: liqUseBslSslLabels });
       }
 
       // Подсветка условий выбранного сигнала — только при LTF-поведении.

@@ -18,6 +18,7 @@ import type {
   FvgZone,
   LiquidityZone,
   OrderBlockZone,
+  PrevDayLevelZone,
   RejectionBlockZone,
   SmcOverlay,
   StructureBreak,
@@ -42,6 +43,10 @@ const COLORS = {
   liqHighSwept: 'rgba(244, 114, 182, 0.35)',
   liqLow: 'rgba(56, 189, 248, 0.85)', // sky-400
   liqLowSwept: 'rgba(56, 189, 248, 0.35)',
+
+  // Previous Day High/Low — приглушённый белый, чтобы не конкурировать с EQH/EQL.
+  pdhActive: 'rgba(229, 231, 235, 0.85)',
+  pdhMitigated: 'rgba(229, 231, 235, 0.30)',
 
   // Структура: BOS — насыщенные «трендовые» цвета; CHoCH — контрастные янтарные.
   bosUp: 'rgba(34, 197, 94, 0.95)', // emerald-500
@@ -93,6 +98,8 @@ export interface RenderSmcOverlayArgs {
   metrics: CanvasMetrics;
   viewport: Viewport;
   overlay: SmcOverlay;
+  /** Использовать BSL/SSL вместо EQH/EQL в подписях. */
+  useBslSslLabels?: boolean;
 }
 
 export function renderSmcOverlay({
@@ -100,6 +107,7 @@ export function renderSmcOverlay({
   metrics,
   viewport,
   overlay,
+  useBslSslLabels,
 }: RenderSmcOverlayArgs): void {
   if (
     overlay.fvgs.length === 0 &&
@@ -107,7 +115,8 @@ export function renderSmcOverlay({
     overlay.structure.length === 0 &&
     overlay.orderBlocks.length === 0 &&
     overlay.breakerBlocks.length === 0 &&
-    overlay.rejectionBlocks.length === 0
+    overlay.rejectionBlocks.length === 0 &&
+    overlay.prevDayLevels.length === 0
   ) {
     return;
   }
@@ -125,7 +134,10 @@ export function renderSmcOverlay({
     drawRejectionBlock(ctx, metrics, viewport, rb);
   }
   for (const liq of overlay.liquidity) {
-    drawLiquidity(ctx, metrics, viewport, liq);
+    drawLiquidity(ctx, metrics, viewport, liq, !!useBslSslLabels);
+  }
+  for (const p of overlay.prevDayLevels) {
+    drawPrevDayLevel(ctx, metrics, viewport, p);
   }
   for (const sb of overlay.structure) {
     drawStructureBreak(ctx, metrics, viewport, sb);
@@ -181,6 +193,7 @@ function drawLiquidity(
   metrics: CanvasMetrics,
   vp: Viewport,
   liq: LiquidityZone,
+  useBslSslLabels: boolean,
 ): void {
   const y = priceToY(liq.price, vp, metrics);
   if (y < 0 || y > metrics.height) return;
@@ -215,7 +228,7 @@ function drawLiquidity(
   }
 
   // Текстовая подпись (кратко: EQH×N / EQL×N или SWEPT)
-  drawLiqLabel(ctx, xLeft + 4, y, liq);
+  drawLiqLabel(ctx, xLeft + 4, y, liq, useBslSslLabels);
 }
 
 function drawSweepMark(
@@ -243,10 +256,16 @@ function drawLiqLabel(
   x: number,
   y: number,
   liq: LiquidityZone,
+  useBslSslLabels: boolean,
 ): void {
-  const tag = liq.kind === 'high' ? 'EQH' : 'EQL';
+  const baseTag = useBslSslLabels
+    ? liq.kind === 'high' ? 'BSL' : 'SSL'
+    : liq.kind === 'high' ? 'EQH' : 'EQL';
+  const posTag =
+    liq.position === 'external' ? ' EXT' :
+    liq.position === 'internal' ? ' INT' : '';
   const sweptTag = liq.sweep ? ' SWEPT' : '';
-  const text = `${tag}×${liq.touches}${sweptTag}`;
+  const text = `${baseTag}×${liq.touches}${posTag}${sweptTag}`;
 
   ctx.save();
   ctx.font = '10px ui-sans-serif, system-ui, -apple-system, sans-serif';
@@ -566,5 +585,52 @@ function drawRejectionBlock(
   ctx.fillRect(x + 4 - padX, labelY - 6 - padY, tw + padX * 2, 12 + padY * 2);
   ctx.fillStyle = stroke;
   ctx.fillText(text, x + 4, labelY);
+  ctx.restore();
+}
+
+// ============================================================================
+// Previous Day High/Low
+// ============================================================================
+
+function drawPrevDayLevel(
+  ctx: CanvasRenderingContext2D,
+  metrics: CanvasMetrics,
+  vp: Viewport,
+  p: PrevDayLevelZone,
+): void {
+  const y = priceToY(p.price, vp, metrics);
+  if (y < 0 || y > metrics.height) return;
+
+  const xLeft = Math.max(0, timeToX(p.startTime, vp, metrics));
+  const xRight = Math.min(metrics.width, timeToX(p.endTime, vp, metrics));
+  if (xRight <= xLeft) return;
+
+  const color = p.unmitigated ? COLORS.pdhActive : COLORS.pdhMitigated;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.setLineDash(p.unmitigated ? [8, 4] : [2, 4]);
+  ctx.beginPath();
+  ctx.moveTo(xLeft, y + 0.5);
+  ctx.lineTo(xRight, y + 0.5);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+
+  // Подпись: PDH/PDL + дата.
+  const tag = p.kind === 'high' ? 'PDH' : 'PDL';
+  const text = `${tag} ${p.sourceDate.slice(5)} ${p.price.toFixed(2)}`;
+  ctx.save();
+  ctx.font = '10px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  ctx.textBaseline = 'middle';
+  const padX = 3;
+  const padY = 2;
+  const w = ctx.measureText(text).width;
+  const labelY = p.kind === 'high' ? y - 8 : y + 8;
+  ctx.fillStyle = COLORS.labelShadow;
+  ctx.fillRect(xLeft + 4 - padX, labelY - 6 - padY, w + padX * 2, 12 + padY * 2);
+  ctx.fillStyle = color;
+  ctx.fillText(text, xLeft + 4, labelY);
   ctx.restore();
 }

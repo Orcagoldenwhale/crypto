@@ -148,6 +148,22 @@ export function loadSmcOptions(): SmcOptions {
       typeof obj.rbRequireSweep === 'boolean'
         ? obj.rbRequireSweep
         : DEFAULT_SMC_OPTIONS.rbRequireSweep,
+    liqShowExternal:
+      typeof obj.liqShowExternal === 'boolean'
+        ? obj.liqShowExternal
+        : DEFAULT_SMC_OPTIONS.liqShowExternal,
+    liqShowInternal:
+      typeof obj.liqShowInternal === 'boolean'
+        ? obj.liqShowInternal
+        : DEFAULT_SMC_OPTIONS.liqShowInternal,
+    liqUseBslSslLabels:
+      typeof obj.liqUseBslSslLabels === 'boolean'
+        ? obj.liqUseBslSslLabels
+        : DEFAULT_SMC_OPTIONS.liqUseBslSslLabels,
+    liqShowPrevDay:
+      typeof obj.liqShowPrevDay === 'boolean'
+        ? obj.liqShowPrevDay
+        : DEFAULT_SMC_OPTIONS.liqShowPrevDay,
   };
 }
 
