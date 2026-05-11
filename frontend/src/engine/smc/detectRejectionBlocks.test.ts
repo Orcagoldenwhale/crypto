@@ -99,6 +99,44 @@ describe('detectRejectionBlocks', () => {
     expect(result[0]!.endTime).toBe(t(2));
   });
 
+  it('useMeanThreshold: mitigation только при закрытии тела за MT', () => {
+    // Bull RB t(0): фитиль 98..100 (тело 100..100.2), MT=99.
+    // t(1) low=99.5 — фитилём задевает зону, но НЕ MT. Без MT — mitigated;
+    // с MT — должен остаться unmitigated.
+    const candles: Candle15m[] = [
+      bar(t(0), 100, 100.3, 98, 100.2),
+      bar(t(1), 100.2, 100.5, 99.5, 100),
+    ];
+    const noMt = detectRejectionBlocks(candles, [], { requireSweep: false });
+    expect(noMt[0]!.unmitigated).toBe(false); // фитиль зашёл в зону → mitigated
+
+    const withMt = detectRejectionBlocks(candles, [], {
+      requireSweep: false,
+      useMeanThreshold: true,
+    });
+    expect(withMt[0]!.unmitigated).toBe(true); // close=100 > MT=99 → не пробит
+  });
+
+  it('mtIncludeWicks: фитиль за MT тоже триггерит mitigation', () => {
+    const candles: Candle15m[] = [
+      bar(t(0), 100, 100.3, 98, 100.2),    // MT = (98+100)/2 = 99
+      bar(t(1), 100.2, 100.5, 98.5, 100),  // low=98.5 < MT=99, но close=100
+    ];
+    const closeOnly = detectRejectionBlocks(candles, [], {
+      requireSweep: false,
+      useMeanThreshold: true,
+      mtIncludeWicks: false,
+    });
+    expect(closeOnly[0]!.unmitigated).toBe(true);
+
+    const withWicks = detectRejectionBlocks(candles, [], {
+      requireSweep: false,
+      useMeanThreshold: true,
+      mtIncludeWicks: true,
+    });
+    expect(withWicks[0]!.unmitigated).toBe(false); // low пробил MT
+  });
+
   it('alsoAtFvg: RB валиден если фитиль зашёл в FVG (без sweep ликвидности)', () => {
     // RB-свеча с длинным нижним фитилём, НЕ снимающим ликвидность,
     // но заходящим в bull-FVG, сформированный ранее.

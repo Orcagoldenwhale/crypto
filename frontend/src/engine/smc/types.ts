@@ -185,9 +185,15 @@ export interface SmcOptions {
   /**
    * Учитывать Mean Threshold (50% тела OB).
    * Если включено — OB считается mitigated только при закрытии тела свечи
-   * за уровень MT, а не при касании границы. Касание фитилем не считается.
+   * за уровень MT, а не при касании границы.
    */
   obUseMeanThreshold: boolean;
+  /**
+   * Если true — фитилём свечи тоже можно "перекрыть" MT (для OB).
+   * Иначе считаются только закрытия телом. Имеет смысл только когда
+   * obUseMeanThreshold=true.
+   */
+  obMtIncludeWicks: boolean;
   /**
    * Требовать "поглощение" следующих свеч телом за пределами тела OB.
    * Если включено — отбрасываем OB, у которых impulse-свечи закрылись
@@ -217,6 +223,16 @@ export interface SmcOptions {
    * сформированный OB/BB. Так же расширяет понятие "снятия".
    */
   rbAlsoAtPrevBlock: boolean;
+  /**
+   * Учитывать Mean Threshold для RB (50% фитиля). По аналогии с OB —
+   * блок живёт пока свеча не закрылась за середину фитиля.
+   */
+  rbUseMeanThreshold: boolean;
+  /**
+   * Если true — фитилём свечи тоже можно перекрыть MT для RB.
+   * Имеет смысл только когда rbUseMeanThreshold=true.
+   */
+  rbMtIncludeWicks: boolean;
 
   // ============== Liquidity =================
   /** Показывать EQH/EQL расположенные снаружи последнего range (external). */
@@ -312,11 +328,14 @@ export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
   fvgMaxFillPct: 50,
   obExtraction: 'wicks',
   obUseMeanThreshold: false,
+  obMtIncludeWicks: false,
   obRequireAbsorption: false,
   rbWickRatio: 2,
   rbRequireSweep: true,
   rbAlsoAtFvg: false,
   rbAlsoAtPrevBlock: false,
+  rbUseMeanThreshold: false,
+  rbMtIncludeWicks: false,
   liqShowExternal: true,
   liqShowInternal: true,
   liqUseBslSslLabels: false,

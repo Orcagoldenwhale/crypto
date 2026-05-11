@@ -43,6 +43,11 @@ export interface DetectOrderBlocksOptions {
    */
   useMeanThreshold?: boolean;
   /**
+   * Если true — фитилём свечи тоже можно перекрыть MT (а не только
+   * закрытием тела). Имеет смысл когда useMeanThreshold=true.
+   */
+  mtIncludeWicks?: boolean;
+  /**
    * Требовать "поглощение": последующая свеча должна закрыться телом
    * за пределами тела OB (ниже close для bear, выше для bull).
    */
@@ -163,7 +168,7 @@ export function detectOrderBlocks(
           return (bodyTop + bodyBot) / 2;
         })();
     const mit = options.useMeanThreshold
-      ? findMtMitigation(arr, breakIdx + 1, kind, mtPrice)
+      ? findMtMitigation(arr, breakIdx + 1, kind, mtPrice, !!options.mtIncludeWicks)
       : findMitigation(arr, breakIdx + 1, kind, minPrice, maxPrice);
 
     const groupStartTime = arr[groupFromIdx]!.timestamp;
@@ -305,21 +310,31 @@ function findMitigation(
 }
 
 /**
- * Mitigation по Mean Threshold: OB считается отработанным только когда
- * тело свечи закрылось за уровнем MT.
- *   bull-OB: close <= mtPrice (закрытие ниже середины тела)
- *   bear-OB: close >= mtPrice (закрытие выше середины тела)
- * Касания фитилями игнорируются — это соответствует методике из лекции.
+ * Mitigation по Mean Threshold: OB считается отработанным когда цена
+ * "перекрыла" уровень MT.
+ *
+ * По умолчанию (includeWicks=false) — только закрытие тела свечи:
+ *   bull-OB: close <= mtPrice
+ *   bear-OB: close >= mtPrice
+ * Касания фитилями игнорируются (классика из лекции).
+ *
+ * Когда includeWicks=true — также учитываются фитили:
+ *   bull-OB: low <= mtPrice (любой прокол фитилём ниже MT)
+ *   bear-OB: high >= mtPrice
  */
 function findMtMitigation(
   arr: readonly OhlcCandle[],
   from: number,
   kind: 'bull' | 'bear',
   mtPrice: number,
+  includeWicks: boolean = false,
 ): number | null {
   for (let k = from; k < arr.length; k++) {
     const c = arr[k]!;
-    if (kind === 'bull' ? c.close <= mtPrice : c.close >= mtPrice) {
+    const closeBreached = kind === 'bull' ? c.close <= mtPrice : c.close >= mtPrice;
+    const wickBreached = includeWicks &&
+      (kind === 'bull' ? c.low <= mtPrice : c.high >= mtPrice);
+    if (closeBreached || wickBreached) {
       return c.timestamp;
     }
   }

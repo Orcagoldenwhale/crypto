@@ -55,6 +55,16 @@ export interface DetectRejectionBlocksOptions {
   fvgZones?: readonly FvgZone[];
   /** Список ранее найденных OB/BB (нужен для alsoAtPrevBlock). */
   priorBlocks?: readonly OrderBlockZone[];
+  /**
+   * Если true — mitigation срабатывает только при закрытии тела свечи
+   * за уровень MT (50% фитиля). Касания фитилём игнорируются.
+   */
+  useMeanThreshold?: boolean;
+  /**
+   * Если true (и useMeanThreshold тоже true) — фитили тоже могут
+   * перекрыть MT. То есть RB инвалидируется и при проколе фитилём.
+   */
+  mtIncludeWicks?: boolean;
 }
 
 export function detectRejectionBlocks(
@@ -96,7 +106,9 @@ export function detectRejectionBlocks(
       const validitySource = hasSweep || wickEnteredFvg || wickEnteredPrev;
       if (requireSweep && !validitySource) continue;
       const mtPrice = (minPrice + maxPrice) / 2;
-      const mit = findMitigation(arr, i + 1, 'bull', minPrice, maxPrice);
+      const mit = options.useMeanThreshold
+        ? findMtMitigation(arr, i + 1, 'bull', mtPrice, !!options.mtIncludeWicks)
+        : findMitigation(arr, i + 1, 'bull', minPrice, maxPrice);
       out.push({
         id: `rb-bull-${c.timestamp}`,
         kind: 'bull',
@@ -126,7 +138,9 @@ export function detectRejectionBlocks(
       const validitySource = hasSweep || wickEnteredFvg || wickEnteredPrev;
       if (requireSweep && !validitySource) continue;
       const mtPrice = (minPrice + maxPrice) / 2;
-      const mit = findMitigation(arr, i + 1, 'bear', minPrice, maxPrice);
+      const mit = options.useMeanThreshold
+        ? findMtMitigation(arr, i + 1, 'bear', mtPrice, !!options.mtIncludeWicks)
+        : findMitigation(arr, i + 1, 'bear', minPrice, maxPrice);
       out.push({
         id: `rb-bear-${c.timestamp}`,
         kind: 'bear',
@@ -190,6 +204,31 @@ function findMitigation(
     // bull RB (фитиль снизу): касание сверху, low ≤ maxPrice
     // bear RB (фитиль сверху): high ≥ minPrice
     if (kind === 'bull' ? c.low <= maxPrice : c.high >= minPrice) {
+      return c.timestamp;
+    }
+  }
+  return null;
+}
+
+/**
+ * Mitigation по Mean Threshold для RB. mtPrice = 50% фитиля.
+ *   bull RB: закрытие тела ниже mid фитиля (close <= mtPrice)
+ *   bear RB: закрытие тела выше mid фитиля (close >= mtPrice)
+ * При includeWicks=true фитиль свечи тоже триггерит mitigation.
+ */
+function findMtMitigation(
+  arr: readonly OhlcCandle[],
+  from: number,
+  kind: 'bull' | 'bear',
+  mtPrice: number,
+  includeWicks: boolean,
+): number | null {
+  for (let k = from; k < arr.length; k++) {
+    const c = arr[k]!;
+    const closeBreached = kind === 'bull' ? c.close <= mtPrice : c.close >= mtPrice;
+    const wickBreached = includeWicks &&
+      (kind === 'bull' ? c.low <= mtPrice : c.high >= mtPrice);
+    if (closeBreached || wickBreached) {
       return c.timestamp;
     }
   }

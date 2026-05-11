@@ -103,6 +103,7 @@ export function runSmcAnalysis(
     ? detectOrderBlocks(candles, allBreaks, {
         extraction: options.obExtraction,
         useMeanThreshold: options.obUseMeanThreshold,
+        mtIncludeWicks: options.obMtIncludeWicks,
         requireAbsorption: options.obRequireAbsorption,
         allowMultiCandle: options.obAllowMultiCandle,
         multiCandleMax: options.obMultiCandleMax,
@@ -168,6 +169,8 @@ export function runSmcAnalysis(
         requireSweep: options.rbRequireSweep,
         alsoAtFvg: options.rbAlsoAtFvg,
         alsoAtPrevBlock: options.rbAlsoAtPrevBlock,
+        useMeanThreshold: options.rbUseMeanThreshold,
+        mtIncludeWicks: options.rbMtIncludeWicks,
         fvgZones: fvgForRb,
         priorBlocks: priorBlocksForRb,
       })

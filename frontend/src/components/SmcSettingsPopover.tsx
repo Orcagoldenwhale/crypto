@@ -269,6 +269,16 @@ export function SmcSettingsPopover({
                   checked={options.obUseMeanThreshold}
                   onChange={(v) => setField('obUseMeanThreshold', v)}
                 />
+                {options.obUseMeanThreshold && (
+                  <div className="pl-5">
+                    <CheckboxRow
+                      label="Учитывать фитили при MT"
+                      hint="не только закрытие телом — фитилём свечи MT тоже можно перекрыть"
+                      checked={options.obMtIncludeWicks}
+                      onChange={(v) => setField('obMtIncludeWicks', v)}
+                    />
+                  </div>
+                )}
                 <CheckboxRow
                   label="Требовать поглощение телом"
                   hint="импульсная свеча должна закрыться за телом OB"
@@ -391,6 +401,22 @@ export function SmcSettingsPopover({
                     />
                   </div>
                 </div>
+                <CheckboxRow
+                  label="Учитывать Mean Threshold"
+                  hint="RB живёт пока тело свечи не закрылось за 50% фитиля"
+                  checked={options.rbUseMeanThreshold}
+                  onChange={(v) => setField('rbUseMeanThreshold', v)}
+                />
+                {options.rbUseMeanThreshold && (
+                  <div className="pl-5">
+                    <CheckboxRow
+                      label="Учитывать фитили при MT"
+                      hint="фитилём свечи MT тоже можно перекрыть"
+                      checked={options.rbMtIncludeWicks}
+                      onChange={(v) => setField('rbMtIncludeWicks', v)}
+                    />
+                  </div>
+                )}
                 <CheckboxRow
                   label="Прятать отработанные"
                   hint="цена возвращалась внутрь фитиля"

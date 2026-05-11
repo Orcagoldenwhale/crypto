@@ -134,6 +134,10 @@ export function loadSmcOptions(): SmcOptions {
       typeof obj.obUseMeanThreshold === 'boolean'
         ? obj.obUseMeanThreshold
         : DEFAULT_SMC_OPTIONS.obUseMeanThreshold,
+    obMtIncludeWicks:
+      typeof obj.obMtIncludeWicks === 'boolean'
+        ? obj.obMtIncludeWicks
+        : DEFAULT_SMC_OPTIONS.obMtIncludeWicks,
     obRequireAbsorption:
       typeof obj.obRequireAbsorption === 'boolean'
         ? obj.obRequireAbsorption
@@ -156,6 +160,14 @@ export function loadSmcOptions(): SmcOptions {
       typeof obj.rbAlsoAtPrevBlock === 'boolean'
         ? obj.rbAlsoAtPrevBlock
         : DEFAULT_SMC_OPTIONS.rbAlsoAtPrevBlock,
+    rbUseMeanThreshold:
+      typeof obj.rbUseMeanThreshold === 'boolean'
+        ? obj.rbUseMeanThreshold
+        : DEFAULT_SMC_OPTIONS.rbUseMeanThreshold,
+    rbMtIncludeWicks:
+      typeof obj.rbMtIncludeWicks === 'boolean'
+        ? obj.rbMtIncludeWicks
+        : DEFAULT_SMC_OPTIONS.rbMtIncludeWicks,
     liqShowExternal:
       typeof obj.liqShowExternal === 'boolean'
         ? obj.liqShowExternal
