@@ -134,6 +134,8 @@ export function runBacktest(
       if (!candleInZone(candle, zone)) continue;
 
       if (zone.fvgKind !== null) {
+        if (zone.fvgKind === 'bull' && check.type !== 'LONG') continue;
+        if (zone.fvgKind === 'bear' && check.type !== 'SHORT') continue;
         const maxFill = zoneFillMax.get(zone.id) ?? 0;
         if (maxFill > settings.fvgMaxFillPct) continue;
       }
