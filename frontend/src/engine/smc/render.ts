@@ -15,6 +15,7 @@ import { priceToY, timeToX } from '../scale';
 import type { CanvasMetrics, Viewport } from '../scale';
 import type {
   BreakerBlockZone,
+  CompressionZone,
   FvgZone,
   LiquidityZone,
   OrderBlockZone,
@@ -47,6 +48,12 @@ const COLORS = {
   // Previous Day High/Low — приглушённый белый, чтобы не конкурировать с EQH/EQL.
   pdhActive: 'rgba(229, 231, 235, 0.85)',
   pdhMitigated: 'rgba(229, 231, 235, 0.30)',
+
+  // Compression — серый полупрозрачный box + контрастные тики
+  compressionFill: 'rgba(148, 163, 184, 0.10)', // slate-400
+  compressionStroke: 'rgba(148, 163, 184, 0.55)',
+  compressionTickDown: 'rgba(239, 68, 68, 0.85)',
+  compressionTickUp: 'rgba(34, 197, 94, 0.85)',
 
   // Структура: BOS — насыщенные «трендовые» цвета; CHoCH — контрастные янтарные.
   bosUp: 'rgba(34, 197, 94, 0.95)', // emerald-500
@@ -116,13 +123,18 @@ export function renderSmcOverlay({
     overlay.orderBlocks.length === 0 &&
     overlay.breakerBlocks.length === 0 &&
     overlay.rejectionBlocks.length === 0 &&
-    overlay.prevDayLevels.length === 0
+    overlay.prevDayLevels.length === 0 &&
+    overlay.compressions.length === 0
   ) {
     return;
   }
 
   for (const fvg of overlay.fvgs) {
     drawFvg(ctx, metrics, viewport, fvg);
+  }
+  // Compression рисуем рано — это фоновая разметка коррекций.
+  for (const c of overlay.compressions) {
+    drawCompression(ctx, metrics, viewport, c);
   }
   for (const ob of overlay.orderBlocks) {
     drawOrderBlock(ctx, metrics, viewport, ob);
@@ -632,5 +644,67 @@ function drawPrevDayLevel(
   ctx.fillRect(xLeft + 4 - padX, labelY - 6 - padY, w + padX * 2, 12 + padY * 2);
   ctx.fillStyle = color;
   ctx.fillText(text, xLeft + 4, labelY);
+  ctx.restore();
+}
+
+// ============================================================================
+// Compression
+// ============================================================================
+
+function drawCompression(
+  ctx: CanvasRenderingContext2D,
+  metrics: CanvasMetrics,
+  vp: Viewport,
+  c: CompressionZone,
+): void {
+  const x1 = timeToX(c.startTime, vp, metrics);
+  const x2 = timeToX(c.endTime, vp, metrics);
+  const y1 = priceToY(c.maxPrice, vp, metrics);
+  const y2 = priceToY(c.minPrice, vp, metrics);
+  const x = Math.min(x1, x2);
+  const w = Math.max(1, Math.abs(x2 - x1));
+  const y = Math.min(y1, y2);
+  const h = Math.max(1, Math.abs(y2 - y1));
+  if (x + w < 0 || x > metrics.width) return;
+  if (y + h < 0 || y > metrics.height) return;
+
+  ctx.save();
+  ctx.fillStyle = COLORS.compressionFill;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = COLORS.compressionStroke;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 3]);
+  ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+  ctx.setLineDash([]);
+
+  // Тики на каждой swing-точке (горизонтальная линия 8px).
+  const tickColor = c.direction === 'down'
+    ? COLORS.compressionTickDown
+    : COLORS.compressionTickUp;
+  ctx.strokeStyle = tickColor;
+  ctx.lineWidth = 1.5;
+  for (const p of c.pricePoints) {
+    const px = timeToX(p.time, vp, metrics);
+    const py = priceToY(p.price, vp, metrics);
+    if (px < 0 || px > metrics.width) continue;
+    ctx.beginPath();
+    ctx.moveTo(px - 4, py + 0.5);
+    ctx.lineTo(px + 4, py + 0.5);
+    ctx.stroke();
+  }
+
+  // Подпись: COMP↓ N×
+  const arrow = c.direction === 'down' ? '↓' : '↑';
+  const text = `COMP${arrow} ${c.pricePoints.length}×`;
+  ctx.font = '10px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  ctx.textBaseline = 'middle';
+  const padX = 3;
+  const padY = 2;
+  const tw = ctx.measureText(text).width;
+  const labelY = c.direction === 'down' ? y - 8 : y + h + 8;
+  ctx.fillStyle = COLORS.labelShadow;
+  ctx.fillRect(x + 4 - padX, labelY - 6 - padY, tw + padX * 2, 12 + padY * 2);
+  ctx.fillStyle = tickColor;
+  ctx.fillText(text, x + 4, labelY);
   ctx.restore();
 }

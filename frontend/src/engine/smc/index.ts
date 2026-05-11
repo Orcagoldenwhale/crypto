@@ -15,6 +15,7 @@ import { detectOrderBlocks } from './detectOrderBlocks';
 import { detectBreakerBlocks } from './detectBreakerBlocks';
 import { detectRejectionBlocks } from './detectRejectionBlocks';
 import { detectPrevDayLevels } from './detectPrevDayLevels';
+import { detectCompressionZones } from './detectCompression';
 import {
   EMPTY_SMC_OVERLAY,
   type LiquidityZone,
@@ -37,7 +38,8 @@ export function runSmcAnalysis(
     !layers.orderBlocks &&
     !layers.breakerBlocks &&
     !layers.rejectionBlocks &&
-    !options.liqShowPrevDay
+    !options.liqShowPrevDay &&
+    !options.liqShowCompression
   ) {
     return EMPTY_SMC_OVERLAY;
   }
@@ -87,6 +89,8 @@ export function runSmcAnalysis(
         extraction: options.obExtraction,
         useMeanThreshold: options.obUseMeanThreshold,
         requireAbsorption: options.obRequireAbsorption,
+        allowMultiCandle: options.obAllowMultiCandle,
+        multiCandleMax: options.obMultiCandleMax,
       })
     : [];
   const orderBlocks = layers.orderBlocks
@@ -129,7 +133,15 @@ export function runSmcAnalysis(
     ? prevDayLevelsRaw.filter((p) => p.unmitigated)
     : prevDayLevelsRaw;
 
-  return { fvgs, liquidity, structure, orderBlocks, breakerBlocks, rejectionBlocks, prevDayLevels };
+  // Compression — серии swing-точек в корректирующих движениях.
+  const compressions = options.liqShowCompression
+    ? detectCompressionZones(candles, {
+        lookback: options.lookback,
+        minPoints: options.liqCompressionMinPoints,
+      })
+    : [];
+
+  return { fvgs, liquidity, structure, orderBlocks, breakerBlocks, rejectionBlocks, prevDayLevels, compressions };
 }
 
 /**
@@ -177,4 +189,5 @@ export { detectOrderBlocks } from './detectOrderBlocks';
 export { detectBreakerBlocks } from './detectBreakerBlocks';
 export { detectRejectionBlocks } from './detectRejectionBlocks';
 export { detectPrevDayLevels } from './detectPrevDayLevels';
+export { detectCompressionZones } from './detectCompression';
 export { renderSmcOverlay } from './render';

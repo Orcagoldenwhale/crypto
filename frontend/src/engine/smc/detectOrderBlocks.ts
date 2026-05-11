@@ -47,6 +47,14 @@ export interface DetectOrderBlocksOptions {
    * за пределами тела OB (ниже close для bear, выше для bull).
    */
   requireAbsorption?: boolean;
+  /**
+   * Если true — расширять OB на цепочку из N однонаправленных свеч
+   * (STB/BTS из лекции про top-down analysis). Границы зоны = объединение
+   * всех свеч в цепочке. По умолчанию false — берём одну свечу.
+   */
+  allowMultiCandle?: boolean;
+  /** Максимальная длина multi-candle OB. По умолчанию 3. */
+  multiCandleMax?: number;
 }
 
 export function detectOrderBlocks(
@@ -84,7 +92,31 @@ export function detectOrderBlocks(
 
     const kind: OrderBlockZone['kind'] = sb.dir === 'up' ? 'bull' : 'bear';
     const extraction = options.extraction ?? 'wicks';
-    const { minPrice, maxPrice } = extractObBounds(ob, extraction);
+
+    // Multi-candle OB: расширяем цепочкой однонаправленных свеч назад от obIdx,
+    // пока они той же полярности и не дальше multiCandleMax от obIdx.
+    let groupFromIdx = obIdx;
+    if (options.allowMultiCandle) {
+      const maxLen = options.multiCandleMax ?? 3;
+      while (
+        groupFromIdx > levelIdx + 1 &&
+        obIdx - groupFromIdx + 1 < maxLen
+      ) {
+        const prev = arr[groupFromIdx - 1]!;
+        // Та же полярность: для bull OB (sb.dir='up') — bearish свеча,
+        // для bear OB — bullish свеча.
+        const samePolarity = sb.dir === 'up'
+          ? prev.close < prev.open
+          : prev.close > prev.open;
+        if (!samePolarity) break;
+        groupFromIdx--;
+      }
+    }
+    const bounds = groupFromIdx === obIdx
+      ? extractObBounds(ob, extraction)
+      : extractGroupBounds(arr, groupFromIdx, obIdx, extraction);
+    const minPrice = bounds.minPrice;
+    const maxPrice = bounds.maxPrice;
 
     // Поглощение: следующая после break свеча должна закрыться телом
     // за пределами тела OB-свечи.
@@ -93,15 +125,30 @@ export function detectOrderBlocks(
       if (!absorbed) continue;
     }
 
-    const mtPrice = (ob.open + ob.close) / 2;
+    // MT для multi-candle: между body-low и body-high всей группы.
+    const mtPrice = groupFromIdx === obIdx
+      ? (ob.open + ob.close) / 2
+      : (() => {
+          let bodyTop = -Infinity;
+          let bodyBot = Infinity;
+          for (let k = groupFromIdx; k <= obIdx; k++) {
+            const cc = arr[k]!;
+            const top = Math.max(cc.open, cc.close);
+            const bot = Math.min(cc.open, cc.close);
+            if (top > bodyTop) bodyTop = top;
+            if (bot < bodyBot) bodyBot = bot;
+          }
+          return (bodyTop + bodyBot) / 2;
+        })();
     const mit = options.useMeanThreshold
       ? findMtMitigation(arr, breakIdx + 1, kind, mtPrice)
       : findMitigation(arr, breakIdx + 1, kind, minPrice, maxPrice);
 
+    const groupStartTime = arr[groupFromIdx]!.timestamp;
     out.push({
-      id: `ob-${kind}-${ob.timestamp}`,
+      id: `ob-${kind}-${groupStartTime}`,
       kind,
-      obTime: ob.timestamp,
+      obTime: groupStartTime,
       startTime: arr[breakIdx]!.timestamp,
       endTime: mit !== null ? mit : lastTime,
       minPrice,
@@ -229,6 +276,27 @@ function findMtMitigation(
     }
   }
   return null;
+}
+
+/**
+ * Объединённые границы для multi-candle OB: проходим по всем свечам
+ * в диапазоне [from..to] и берём агрегированные границы тем же методом
+ * (wicks/body), который выбран для одиночной свечи.
+ */
+function extractGroupBounds(
+  arr: readonly OhlcCandle[],
+  from: number,
+  to: number,
+  mode: ObExtractionMode,
+): { minPrice: number; maxPrice: number } {
+  let minPrice = Infinity;
+  let maxPrice = -Infinity;
+  for (let i = from; i <= to; i++) {
+    const b = extractObBounds(arr[i]!, mode);
+    if (b.minPrice < minPrice) minPrice = b.minPrice;
+    if (b.maxPrice > maxPrice) maxPrice = b.maxPrice;
+  }
+  return { minPrice, maxPrice };
 }
 
 /**

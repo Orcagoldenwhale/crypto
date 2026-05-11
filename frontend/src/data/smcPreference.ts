@@ -164,6 +164,26 @@ export function loadSmcOptions(): SmcOptions {
       typeof obj.liqShowPrevDay === 'boolean'
         ? obj.liqShowPrevDay
         : DEFAULT_SMC_OPTIONS.liqShowPrevDay,
+    liqShowCompression:
+      typeof obj.liqShowCompression === 'boolean'
+        ? obj.liqShowCompression
+        : DEFAULT_SMC_OPTIONS.liqShowCompression,
+    liqCompressionMinPoints: clampInt(
+      obj.liqCompressionMinPoints,
+      2,
+      10,
+      DEFAULT_SMC_OPTIONS.liqCompressionMinPoints,
+    ),
+    obAllowMultiCandle:
+      typeof obj.obAllowMultiCandle === 'boolean'
+        ? obj.obAllowMultiCandle
+        : DEFAULT_SMC_OPTIONS.obAllowMultiCandle,
+    obMultiCandleMax: clampInt(
+      obj.obMultiCandleMax,
+      2,
+      5,
+      DEFAULT_SMC_OPTIONS.obMultiCandleMax,
+    ),
   };
 }
 

@@ -81,6 +81,34 @@ export interface LiquidityZone {
 }
 
 /**
+ * Compression — последовательность из N+ последовательных swing-точек одной
+ * полярности с монотонным изменением цены (нисходящая для highs = коррекция
+ * вниз; восходящая для lows = коррекция вверх).
+ *
+ * Из лекции: "последовательность максимумов/минимумов между ключевыми
+ * структурными точками". Каждая точка серии = pool ликвидности.
+ */
+export interface CompressionZone {
+  id: SmcZoneId;
+  /**
+   * Направление коррекции:
+   * - 'down': серия LH (lower highs) — коррекция вниз, BSL на каждом max
+   * - 'up':   серия HL (higher lows) — коррекция вверх, SSL на каждом min
+   */
+  direction: 'up' | 'down';
+  /** Время первой swing-точки серии. */
+  startTime: TimestampMs;
+  /** Время последней swing-точки. */
+  endTime: TimestampMs;
+  /** Нижняя граница (для 'down' = последняя цена, для 'up' = первая). */
+  minPrice: Price;
+  /** Верхняя граница. */
+  maxPrice: Price;
+  /** Цены всех swing-точек серии (для рендера отметок). */
+  pricePoints: readonly { time: TimestampMs; price: Price }[];
+}
+
+/**
  * PDH/PDL — максимум/минимум предыдущего дня.
  *
  * Классическая концепция ликвидности из лекции: интрадей-цели для цены.
@@ -187,6 +215,18 @@ export interface SmcOptions {
   liqUseBslSslLabels: boolean;
   /** Включить отдельный слой Previous Day High/Low. */
   liqShowPrevDay: boolean;
+  /** Включить детектор Compression (серии swing-точек). */
+  liqShowCompression: boolean;
+  /** Минимальное число swing-точек в серии для compression. */
+  liqCompressionMinPoints: number;
+  /**
+   * Multi-candle OB: разрешать ли группировать N подряд идущих
+   * однонаправленных свеч перед break в один OB. Если false (по умолчанию) —
+   * берём только последнюю противонаправленную свечу (классика).
+   */
+  obAllowMultiCandle: boolean;
+  /** Максимальное число свеч в multi-candle OB (2..5). */
+  obMultiCandleMax: number;
 }
 
 /** Видимость каждого слоя (тогглы из Toolbox). */
@@ -208,6 +248,7 @@ export interface SmcOverlay {
   breakerBlocks: readonly BreakerBlockZone[];
   rejectionBlocks: readonly RejectionBlockZone[];
   prevDayLevels: readonly PrevDayLevelZone[];
+  compressions: readonly CompressionZone[];
 }
 
 export const EMPTY_SMC_OVERLAY: SmcOverlay = Object.freeze({
@@ -218,6 +259,7 @@ export const EMPTY_SMC_OVERLAY: SmcOverlay = Object.freeze({
   breakerBlocks: [],
   rejectionBlocks: [],
   prevDayLevels: [],
+  compressions: [],
 });
 
 export const DEFAULT_HIDE_MITIGATED: SmcHideMitigated = Object.freeze({
@@ -244,6 +286,10 @@ export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
   liqShowInternal: true,
   liqUseBslSslLabels: false,
   liqShowPrevDay: false,
+  liqShowCompression: false,
+  liqCompressionMinPoints: 3,
+  obAllowMultiCandle: false,
+  obMultiCandleMax: 3,
 });
 
 export const DEFAULT_SMC_LAYERS: SmcLayers = Object.freeze({

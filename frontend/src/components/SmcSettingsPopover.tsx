@@ -217,6 +217,24 @@ export function SmcSettingsPopover({
                   ценой — становятся серыми (теряют актуальность).
                 </p>
               </SubSection>
+
+              <SubSection
+                title="Compression"
+                subtitle="Серии swing-точек в корректирующих движениях"
+                enableLabel="Включить"
+                enabled={options.liqShowCompression}
+                onEnabledChange={(v) => setField('liqShowCompression', v)}
+              >
+                <NumberField
+                  label="Мин. точек в серии"
+                  hint="3 = умеренно, 4+ = только глубокие коррекции"
+                  value={options.liqCompressionMinPoints}
+                  min={2}
+                  max={10}
+                  step={1}
+                  onChange={(v) => setField('liqCompressionMinPoints', Math.round(v))}
+                />
+              </SubSection>
             </SectionCard>
 
             <SectionCard title="Structure" subtitle="BOS / CHoCH + retest">
@@ -257,6 +275,23 @@ export function SmcSettingsPopover({
                   checked={options.obRequireAbsorption}
                   onChange={(v) => setField('obRequireAbsorption', v)}
                 />
+                <CheckboxRow
+                  label="Multi-candle OB (STB/BTS)"
+                  hint="расширять OB на серию однонаправленных свеч перед break"
+                  checked={options.obAllowMultiCandle}
+                  onChange={(v) => setField('obAllowMultiCandle', v)}
+                />
+                {options.obAllowMultiCandle && (
+                  <NumberField
+                    label="Макс. свеч в группе"
+                    hint="ограничение длины multi-candle OB"
+                    value={options.obMultiCandleMax}
+                    min={2}
+                    max={5}
+                    step={1}
+                    onChange={(v) => setField('obMultiCandleMax', Math.round(v))}
+                  />
+                )}
                 <CheckboxRow
                   label="Прятать отработанные"
                   hint="цена касалась OB"

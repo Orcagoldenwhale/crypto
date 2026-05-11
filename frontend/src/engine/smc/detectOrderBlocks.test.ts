@@ -212,4 +212,39 @@ describe('detectOrderBlocks', () => {
     const obs = detectOrderBlocks(candles, breaks);
     expect(obs).toHaveLength(1);
   });
+
+  it('Multi-candle OB: расширяет границы на цепочку bearish свеч перед bull break', () => {
+    // 3 подряд медвежьих перед break↑. Допускаем multi-candle с max=3:
+    // Зона должна охватывать все 3 свечи, а не только последнюю (i=3).
+    const candles: Candle15m[] = [
+      bar(t(0), 12, 12.5, 11.5, 12),    // swing-high level=12.5
+      bar(t(1), 12, 12, 11, 11),        // bearish #1
+      bar(t(2), 11, 11.5, 10, 10),      // bearish #2 (последний из серии)
+      bar(t(3), 10, 10.5, 9, 9.5),      // bearish #3 = последний opposite перед break
+      bar(t(4), 9.5, 14, 9.4, 13.5),    // break↑ (close=13.5 > 12.5)
+      bar(t(5), 13.5, 14, 13, 13.5),
+    ];
+    const breaks: StructureBreak[] = [
+      {
+        id: 'b1',
+        kind: 'BOS',
+        dir: 'up',
+        level: 12.5,
+        levelTime: t(0),
+        breakTime: t(4),
+        retestTime: null,
+      },
+    ];
+    const single = detectOrderBlocks(candles, breaks);
+    const multi = detectOrderBlocks(candles, breaks, {
+      allowMultiCandle: true,
+      multiCandleMax: 3,
+    });
+    expect(single).toHaveLength(1);
+    expect(multi).toHaveLength(1);
+    // Multi-candle охватывает большую цену снизу (low=9 OB-свечи последней группы)
+    // и higher top (12 от первой свечи группы).
+    expect(multi[0]!.maxPrice).toBeGreaterThan(single[0]!.maxPrice);
+    expect(multi[0]!.obTime).toBe(t(1));
+  });
 });
