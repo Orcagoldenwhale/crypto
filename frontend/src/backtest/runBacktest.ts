@@ -118,7 +118,9 @@ export function runBacktest(
   const trades: BacktestTrade[] = [];
   const zoneEntryCount = new Map<string, number>();
   const zoneFillMax = new Map<string, number>();
+  const debug = settings.debugLog;
   const log: string[] = [];
+  const trace = debug ? (msg: string) => { log.push(msg); } : () => {};
   const fmt = (ts: number) => {
     const d = new Date(ts);
     const pad = (n: number) => String(n).padStart(2, '0');
@@ -144,7 +146,7 @@ export function runBacktest(
     const bodyPct = (Math.abs(candle.close - candle.open) / candle.close) * 100;
 
     if (settings.maxCandleBodyPct > 0 && bodyPct > settings.maxCandleBodyPct) {
-      log.push(`[BT] ${ts} ${check.type} SKIP body=${bodyPct.toFixed(3)}% > max=${settings.maxCandleBodyPct}%  C=${candle.close}`);
+      trace(`[BT] ${ts} ${check.type} SKIP body=${bodyPct.toFixed(3)}% > max=${settings.maxCandleBodyPct}%  C=${candle.close}`);
       continue;
     }
 
@@ -154,40 +156,40 @@ export function runBacktest(
 
       if (zone.fvgKind !== null) {
         if (zone.fvgKind === 'bull' && check.type !== 'LONG') {
-          log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bull FVG, need LONG)`);
+          trace(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bull FVG, need LONG)`);
           continue;
         }
         if (zone.fvgKind === 'bear' && check.type !== 'SHORT') {
-          log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bear FVG, need SHORT)`);
+          trace(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bear FVG, need SHORT)`);
           continue;
         }
         const fvgHeight = zone.fvgMaxPrice - zone.fvgMinPrice;
         const fvgPct = (fvgHeight / zone.fvgMinPrice) * 100;
         if (settings.minFvgPct > 0 && fvgPct < settings.minFvgPct) {
-          log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=fvg_too_small (${fvgPct.toFixed(3)}% < ${settings.minFvgPct}%)`);
+          trace(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=fvg_too_small (${fvgPct.toFixed(3)}% < ${settings.minFvgPct}%)`);
           continue;
         }
         const maxFill = zoneFillMax.get(zone.id) ?? 0;
         if (maxFill > settings.fvgMaxFillPct) {
-          log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=fvg_filled (${maxFill.toFixed(1)}% > ${settings.fvgMaxFillPct}%)`);
+          trace(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=fvg_filled (${maxFill.toFixed(1)}% > ${settings.fvgMaxFillPct}%)`);
           continue;
         }
       }
 
       if (zone.obKind !== null) {
         if (zone.obKind === 'bull' && check.type !== 'LONG') {
-          log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bull OB, need LONG)`);
+          trace(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bull OB, need LONG)`);
           continue;
         }
         if (zone.obKind === 'bear' && check.type !== 'SHORT') {
-          log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bear OB, need SHORT)`);
+          trace(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=direction (bear OB, need SHORT)`);
           continue;
         }
       }
 
       const count = zoneEntryCount.get(zone.id) ?? 0;
       if (count > settings.maxReentries) {
-        log.push(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=max_reentries (${count} > ${settings.maxReentries})`);
+        trace(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=max_reentries (${count} > ${settings.maxReentries})`);
         continue;
       }
 
@@ -250,7 +252,7 @@ export function runBacktest(
         }
       }
 
-      log.push(`[BT] ${ts} ${type} ENTRY zone=${zone.id} entry=${entryPrice.toFixed(2)} SL=${stopPrice.toFixed(2)} TP=${takePrice.toFixed(2)} → ${outcome} ${pnlR >= 0 ? '+' : ''}${pnlR.toFixed(1)}R`);
+      trace(`[BT] ${ts} ${type} ENTRY zone=${zone.id} entry=${entryPrice.toFixed(2)} SL=${stopPrice.toFixed(2)} TP=${takePrice.toFixed(2)} → ${outcome} ${pnlR >= 0 ? '+' : ''}${pnlR.toFixed(1)}R`);
 
       const tradeId = `${zone.id}::${candle.timestamp}::${type}::${count}`;
       trades.push({
@@ -276,7 +278,7 @@ export function runBacktest(
     }
 
     if (!matched) {
-      log.push(`[BT] ${ts} ${check.type} NO_ZONE C=${candle.close.toFixed(2)} body=${bodyPct.toFixed(3)}%`);
+      trace(`[BT] ${ts} ${check.type} NO_ZONE C=${candle.close.toFixed(2)} body=${bodyPct.toFixed(3)}%`);
     }
 
     for (const zone of zones) {
@@ -305,17 +307,19 @@ export function runBacktest(
     }
   }
 
-  const first = candles.length > 0 ? fmt(candles[0]!.timestamp) : '?';
-  const last = candles.length > 0 ? fmt(candles[candles.length - 1]!.timestamp) : '?';
-  const header = `Backtest @ ${new Date().toISOString()}: ${trades.length} trades, ${wins}W/${losses}L, ${totalPnlR >= 0 ? '+' : ''}${totalPnlR.toFixed(1)}R\nSettings: ${JSON.stringify(settings)}\nZones: ${zones.length}\nCandles: ${candles.length} (${first} … ${last})\n${'='.repeat(80)}`;
-  const logText = header + '\n' + log.join('\n');
-  try {
-    fetch('/api/bt-log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: logText,
-    }).catch(() => {});
-  } catch { /* ignore */ }
+  if (debug) {
+    const first = candles.length > 0 ? fmt(candles[0]!.timestamp) : '?';
+    const last = candles.length > 0 ? fmt(candles[candles.length - 1]!.timestamp) : '?';
+    const header = `Backtest @ ${new Date().toISOString()}: ${trades.length} trades, ${wins}W/${losses}L, ${totalPnlR >= 0 ? '+' : ''}${totalPnlR.toFixed(1)}R\nSettings: ${JSON.stringify(settings)}\nZones: ${zones.length}\nCandles: ${candles.length} (${first} … ${last})\n${'='.repeat(80)}`;
+    const logText = header + '\n' + log.join('\n');
+    try {
+      fetch('/api/bt-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: logText,
+      }).catch(() => {});
+    } catch { /* ignore */ }
+  }
 
   return {
     totalTrades: trades.length,

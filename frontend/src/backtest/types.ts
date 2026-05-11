@@ -19,6 +19,8 @@ export interface BacktestSettings {
   maxCandleBodyPct: number;
   /** Мин. размер FVG в % от цены. FVG меньше этого порога игнорируются. */
   minFvgPct: number;
+  /** Включить диагностический лог (запись в backtest-log.txt). */
+  debugLog: boolean;
 }
 
 export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
@@ -29,6 +31,7 @@ export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
   fvgMaxFillPct: 50,
   maxCandleBodyPct: 1,
   minFvgPct: 0.1,
+  debugLog: false,
 };
 
 /** Одна сделка бэктеста. */

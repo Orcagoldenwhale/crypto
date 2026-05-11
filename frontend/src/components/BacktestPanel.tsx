@@ -89,6 +89,16 @@ export function BacktestPanel({ onRun, report, running }: BacktestPanelProps) {
                 onChange={(v) => update('maxCandleBodyPct', v)}
               />
             </SettingRow>
+
+            <label className="flex cursor-pointer items-center justify-between" title="Записывать backtest-log.txt с причинами отказа по каждому сигналу">
+              <span className="text-[11px] text-tv-text">Debug лог</span>
+              <input
+                type="checkbox"
+                checked={settings.debugLog}
+                onChange={(e) => update('debugLog', e.target.checked)}
+                className="h-3.5 w-3.5 accent-tv-accent"
+              />
+            </label>
           </div>
 
           {/* Run button */}
