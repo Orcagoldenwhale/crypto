@@ -14,11 +14,13 @@
 
 import { useEffect, useRef, type ReactNode } from 'react';
 import { X } from 'lucide-react';
-import type { SmcHideMitigated, SmcOptions } from '@/engine/smc/types';
+import type { SmcHideMitigated, SmcLayers, SmcOptions } from '@/engine/smc/types';
 
 interface SmcSettingsPopoverProps {
   options: SmcOptions;
   onChange: (next: SmcOptions) => void;
+  layers: SmcLayers;
+  onLayersChange: (next: SmcLayers) => void;
   onClose: () => void;
   onOpenHelp?: () => void;
   /** @deprecated не используется (модалка центрируется во viewport). */
@@ -30,6 +32,8 @@ interface SmcSettingsPopoverProps {
 export function SmcSettingsPopover({
   options,
   onChange,
+  layers,
+  onLayersChange,
   onClose,
   onOpenHelp,
 }: SmcSettingsPopoverProps) {
@@ -56,6 +60,10 @@ export function SmcSettingsPopover({
       ...options,
       hideMitigated: { ...options.hideMitigated, [key]: value },
     });
+  };
+
+  const setLayer = (key: keyof SmcLayers, value: boolean) => {
+    onLayersChange({ ...layers, [key]: value });
   };
 
   const hideKeys: (keyof SmcHideMitigated)[] = [
@@ -187,69 +195,87 @@ export function SmcSettingsPopover({
               />
             </SectionCard>
 
-            <SectionCard title="Order Blocks" subtitle="Классический OB и его варианты">
-              <SelectField
-                label="Выделение OB"
-                hint="wicks — по фитилям, body — по телу, auto — авто"
-                value={options.obExtraction}
-                onChange={(v) => setField('obExtraction', v as SmcOptions['obExtraction'])}
-                options={[
-                  { value: 'wicks', label: 'По фитилям (wicks)' },
-                  { value: 'body', label: 'По телу (body)' },
-                  { value: 'auto', label: 'Авто (auto)' },
-                ]}
-              />
-              <CheckboxRow
-                label="Учитывать Mean Threshold"
-                hint="OB живёт пока тело свечи не закрылось за 50% от тела OB"
-                checked={options.obUseMeanThreshold}
-                onChange={(v) => setField('obUseMeanThreshold', v)}
-              />
-              <CheckboxRow
-                label="Требовать поглощение телом"
-                hint="импульсная свеча должна закрыться за телом OB"
-                checked={options.obRequireAbsorption}
-                onChange={(v) => setField('obRequireAbsorption', v)}
-              />
-              <CheckboxRow
-                label="Прятать отработанные"
-                hint="цена касалась OB"
-                checked={options.hideMitigated.orderBlocks}
-                onChange={(v) => setHide('orderBlocks', v)}
-              />
-            </SectionCard>
+            <SectionCard
+              title="Order Blocks"
+              subtitle="Базовый OB + расширения: Breaker, Rejection"
+              className="md:col-span-2"
+            >
+              <SubSection title="Базовый OB">
+                <SelectField
+                  label="Выделение OB"
+                  hint="wicks — по фитилям, body — по телу, auto — авто"
+                  value={options.obExtraction}
+                  onChange={(v) => setField('obExtraction', v as SmcOptions['obExtraction'])}
+                  options={[
+                    { value: 'wicks', label: 'По фитилям (wicks)' },
+                    { value: 'body', label: 'По телу (body)' },
+                    { value: 'auto', label: 'Авто (auto)' },
+                  ]}
+                />
+                <CheckboxRow
+                  label="Учитывать Mean Threshold"
+                  hint="OB живёт пока тело свечи не закрылось за 50% тела OB"
+                  checked={options.obUseMeanThreshold}
+                  onChange={(v) => setField('obUseMeanThreshold', v)}
+                />
+                <CheckboxRow
+                  label="Требовать поглощение телом"
+                  hint="импульсная свеча должна закрыться за телом OB"
+                  checked={options.obRequireAbsorption}
+                  onChange={(v) => setField('obRequireAbsorption', v)}
+                />
+                <CheckboxRow
+                  label="Прятать отработанные"
+                  hint="цена касалась OB"
+                  checked={options.hideMitigated.orderBlocks}
+                  onChange={(v) => setHide('orderBlocks', v)}
+                />
+              </SubSection>
 
-            <SectionCard title="Breaker Blocks" subtitle="Пробитый OB с разворотом структуры">
-              <CheckboxRow
-                label="Прятать отработанные"
-                hint="цена касалась BB"
-                checked={options.hideMitigated.breakerBlocks}
-                onChange={(v) => setHide('breakerBlocks', v)}
-              />
-            </SectionCard>
+              <SubSection
+                title="Breaker Block (BB)"
+                subtitle="Пробитый OB с разворотом структуры"
+                enableLabel="Включить BB"
+                enabled={layers.breakerBlocks}
+                onEnabledChange={(v) => setLayer('breakerBlocks', v)}
+              >
+                <CheckboxRow
+                  label="Прятать отработанные"
+                  hint="цена касалась BB"
+                  checked={options.hideMitigated.breakerBlocks}
+                  onChange={(v) => setHide('breakerBlocks', v)}
+                />
+              </SubSection>
 
-            <SectionCard title="Rejection Blocks" subtitle="Длинный фитиль на снятии ликвидности">
-              <NumberField
-                label="Фитиль / тело (≥)"
-                hint="свеча считается RB только если фитиль ≥ N × тело"
-                value={options.rbWickRatio}
-                min={1}
-                max={20}
-                step={0.5}
-                onChange={(v) => setField('rbWickRatio', v)}
-              />
-              <CheckboxRow
-                label="Требовать sweep ликвидности"
-                hint="фитиль должен пробивать swing-high/low"
-                checked={options.rbRequireSweep}
-                onChange={(v) => setField('rbRequireSweep', v)}
-              />
-              <CheckboxRow
-                label="Прятать отработанные"
-                hint="цена возвращалась внутрь фитиля"
-                checked={options.hideMitigated.rejectionBlocks}
-                onChange={(v) => setHide('rejectionBlocks', v)}
-              />
+              <SubSection
+                title="Rejection Block (RB)"
+                subtitle="Длинный фитиль на снятии ликвидности"
+                enableLabel="Включить RB"
+                enabled={layers.rejectionBlocks}
+                onEnabledChange={(v) => setLayer('rejectionBlocks', v)}
+              >
+                <NumberField
+                  label="Фитиль / тело (≥)"
+                  hint="свеча считается RB только если фитиль ≥ N × тело"
+                  value={options.rbWickRatio}
+                  min={1}
+                  max={20}
+                  step={0.5}
+                  onChange={(v) => setField('rbWickRatio', v)}
+                />
+                <CheckboxRow
+                  label="Требовать sweep ликвидности"
+                  hint="фитиль должен пробивать swing-high/low"
+                  checked={options.rbRequireSweep}
+                  onChange={(v) => setField('rbRequireSweep', v)}
+                />
+                <CheckboxRow
+                  label="Прятать отработанные"
+                  hint="цена возвращалась внутрь фитиля"
+                  checked={options.hideMitigated.rejectionBlocks}
+                  onChange={(v) => setHide('rejectionBlocks', v)}
+                />
+              </SubSection>
             </SectionCard>
 
           </div>
@@ -267,13 +293,15 @@ function SectionCard({
   title,
   subtitle,
   children,
+  className,
 }: {
   title: string;
   subtitle?: string;
   children: ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="flex flex-col gap-3 rounded-md border border-tv-border bg-tv-bg-deep/40 p-4">
+    <section className={`flex flex-col gap-3 rounded-md border border-tv-border bg-tv-bg-deep/40 p-4 ${className ?? ''}`}>
       <header className="flex flex-col gap-0.5 border-b border-tv-border pb-2">
         <h3 className="text-sm font-semibold text-tv-text">{title}</h3>
         {subtitle && (
@@ -282,6 +310,54 @@ function SectionCard({
       </header>
       <div className="flex flex-col gap-3">{children}</div>
     </section>
+  );
+}
+
+/**
+ * Подсекция внутри карточки. Если переданы `enabled` + `onEnabledChange` —
+ * наверху показывается toggle с заголовком, и содержимое блёкнет когда выкл.
+ */
+function SubSection({
+  title,
+  subtitle,
+  children,
+  enabled,
+  onEnabledChange,
+  enableLabel,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+  enabled?: boolean;
+  onEnabledChange?: (v: boolean) => void;
+  enableLabel?: string;
+}) {
+  const hasToggle = typeof enabled === 'boolean' && onEnabledChange;
+  return (
+    <div className="flex flex-col gap-2 rounded border border-tv-border/60 bg-tv-bg-deep/40 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex flex-col gap-0.5">
+          <h4 className="text-[12px] font-semibold text-tv-text">{title}</h4>
+          {subtitle && (
+            <p className="text-[10px] text-tv-text-muted">{subtitle}</p>
+          )}
+        </div>
+        {hasToggle && (
+          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[10px] text-tv-text-muted">
+            <span>{enableLabel ?? 'Вкл'}</span>
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => onEnabledChange!(e.target.checked)}
+              className="h-3.5 w-3.5 accent-tv-accent"
+            />
+          </label>
+        )}
+      </div>
+      <div className={`flex flex-col gap-3 ${hasToggle && !enabled ? 'pointer-events-none opacity-40' : ''}`}>
+        {children}
+      </div>
+    </div>
   );
 }
 

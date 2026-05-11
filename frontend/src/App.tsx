@@ -1366,6 +1366,8 @@ export default function App() {
           <SmcSettingsPopover
             options={smcOpts}
             onChange={setSmcOpts}
+            layers={smcLayers}
+            onLayersChange={setSmcLayers}
             onClose={handleCloseSmcSettings}
             onOpenHelp={handleOpenHelp}
             anchorX={smcSettingsAnchor.x}
