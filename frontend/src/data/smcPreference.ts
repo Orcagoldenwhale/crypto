@@ -109,6 +109,12 @@ export function loadSmcOptions(): SmcOptions {
       DEFAULT_SMC_OPTIONS.equalityTolerancePct,
     ),
     hideMitigated: parseHideMitigated(obj.hideMitigated, obj.hideMitigatedFvg),
+    fvgMaxFillPct: clampInt(
+      obj.fvgMaxFillPct,
+      0,
+      100,
+      DEFAULT_SMC_OPTIONS.fvgMaxFillPct,
+    ),
   };
 }
 

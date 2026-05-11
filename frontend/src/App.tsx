@@ -52,7 +52,10 @@ import {
 import { runSmcAnalysis } from '@/engine/smc';
 import { EMPTY_SMC_OVERLAY, type SmcLayers, type SmcOptions } from '@/engine/smc/types';
 import { SmcSettingsPopover } from '@/components/SmcSettingsPopover';
+import { BacktestPanel } from '@/components/BacktestPanel';
 import { HelpModal } from '@/components/HelpModal';
+import { runBacktest, collectZones, type SmcZoneRect } from '@/backtest/runBacktest';
+import type { BacktestSettings, BacktestReport as BacktestReportData } from '@/backtest/types';
 import { candleDurationMs } from '@/engine/scale';
 import {
   computeAutoMultiplier,
@@ -171,6 +174,14 @@ export default function App() {
   >(null);
   /** Открыто ли полное руководство (HelpModal). */
   const [helpOpen, setHelpOpen] = useState(false);
+
+  // ============================================================================
+  // Бэктест
+  // ============================================================================
+  const [backtestOpen, setBacktestOpen] = useState(false);
+  const [backtestReport, setBacktestReport] = useState<BacktestReportData | null>(null);
+  const [backtestRunning, setBacktestRunning] = useState(false);
+  const [backtestZones, setBacktestZones] = useState<SmcZoneRect[]>([]);
 
   // ============================================================================
   // Live-режим (real-time aggTrades с Binance, см. docs/04-live-mode.md)
@@ -514,6 +525,30 @@ export default function App() {
   }, []);
   const handleOpenHelp = useCallback(() => setHelpOpen(true), []);
   const handleCloseHelp = useCallback(() => setHelpOpen(false), []);
+
+  const handleToggleBacktest = useCallback(() => {
+    setBacktestOpen((prev) => !prev);
+  }, []);
+  const handleRunBacktest = useCallback(
+    (settings: BacktestSettings) => {
+      if (ltfData.length === 0) {
+        window.alert('Сначала загрузите данные.');
+        return;
+      }
+      const info = findSymbol(symbol);
+      if (!info) return;
+      setBacktestRunning(true);
+      requestAnimationFrame(() => {
+        const merged = { ...settings, fvgMaxFillPct: smcOpts.fvgMaxFillPct };
+        const zones = collectZones(smcOverlay, merged.zoneGapPct);
+        const report = runBacktest(ltfData as Candle5m[], smcOverlay, merged);
+        setBacktestZones(zones);
+        setBacktestReport(report);
+        setBacktestRunning(false);
+      });
+    },
+    [ltfData, smcOverlay, smcOpts.fvgMaxFillPct, symbol],
+  );
 
   // ============================================================================
   // Live-режим: старт/стоп, авто-остановка при смене символа.
@@ -1275,6 +1310,8 @@ export default function App() {
         liveActive={liveActive}
         liveStats={liveStats}
         onToggleLive={handleToggleLive}
+        backtestOpen={backtestOpen}
+        onToggleBacktest={handleToggleBacktest}
       />
 
       {/* Полноэкранный оверлей при drag&drop файла. */}
@@ -1318,6 +1355,8 @@ export default function App() {
           onHoverCandle={handleHoverCandle}
           onHoverCluster={handleHoverCluster}
           onViewportApi={handleViewportApi}
+          backtestTrades={backtestReport?.trades ?? []}
+          backtestZones={backtestZones}
         />
 
         {/* Popover настроек SMC (открывается из Toolbox по шестерёнке) */}
@@ -1329,6 +1368,15 @@ export default function App() {
             onOpenHelp={handleOpenHelp}
             anchorX={smcSettingsAnchor.x}
             anchorY={smcSettingsAnchor.y}
+          />
+        )}
+
+        {/* Панель бэктеста */}
+        {backtestOpen && (
+          <BacktestPanel
+            onRun={handleRunBacktest}
+            report={backtestReport}
+            running={backtestRunning}
           />
         )}
 

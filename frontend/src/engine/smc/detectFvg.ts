@@ -64,11 +64,12 @@ export function findFVGs(
     if (!prev || !cur || !next) continue;
 
     // Bull FVG: low[i+1] строго выше high[i-1]
+    // startTime = next.timestamp: зона существует только ПОСЛЕ закрытия 3-й свечи.
     if (next.low > prev.high) {
       const zone = buildAndMitigate({
         kind: 'bull',
         startIdx: i - 1,
-        startTime: prev.timestamp,
+        startTime: next.timestamp,
         minPrice: prev.high,
         maxPrice: next.low,
         candles,
@@ -83,7 +84,7 @@ export function findFVGs(
       const zone = buildAndMitigate({
         kind: 'bear',
         startIdx: i - 1,
-        startTime: prev.timestamp,
+        startTime: next.timestamp,
         minPrice: next.high,
         maxPrice: prev.low,
         candles,

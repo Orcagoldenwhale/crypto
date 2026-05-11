@@ -1,0 +1,261 @@
+import { checkSignal } from '@/scanner/checkSignal';
+import type { Candle5m, Price, TimestampMs } from '@/types';
+import type { SmcOverlay } from '@/engine/smc/types';
+import type { BacktestSettings, BacktestReport, BacktestTrade } from './types';
+
+export interface SmcZoneRect {
+  id: string;
+  startTime: TimestampMs;
+  endTime: TimestampMs;
+  minPrice: Price;
+  maxPrice: Price;
+  /** 'fvg-bull' | 'fvg-bear' | null — для трекинга заполнения FVG. */
+  fvgKind: 'bull' | 'bear' | null;
+  /** Оригинальные границы FVG (до gap-расширения) — для расчёта % заполнения. */
+  fvgMinPrice: Price;
+  fvgMaxPrice: Price;
+}
+
+/**
+ * Собирает прямоугольные зоны из SmcOverlay (только включённые слои уже отфильтрованы).
+ * Расширяет каждую зону на zoneGapPct % от её высоты.
+ */
+export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRect[] {
+  const gapFrac = zoneGapPct / 100;
+  const zones: SmcZoneRect[] = [];
+
+  for (const fvg of overlay.fvgs) {
+    const h = fvg.maxPrice - fvg.minPrice;
+    const gap = h * gapFrac;
+    zones.push({
+      id: `fvg-${fvg.id}`,
+      startTime: fvg.startTime,
+      endTime: fvg.endTime,
+      minPrice: fvg.minPrice - gap,
+      maxPrice: fvg.maxPrice + gap,
+      fvgKind: fvg.kind,
+      fvgMinPrice: fvg.minPrice,
+      fvgMaxPrice: fvg.maxPrice,
+    });
+  }
+
+  for (const liq of overlay.liquidity) {
+    const band = liq.price * 0.001;
+    const gap = band * gapFrac;
+    zones.push({
+      id: `liq-${liq.id}`,
+      startTime: liq.startTime,
+      endTime: liq.endTime,
+      minPrice: liq.price - band - gap,
+      maxPrice: liq.price + band + gap,
+      fvgKind: null,
+      fvgMinPrice: 0,
+      fvgMaxPrice: 0,
+    });
+  }
+
+  for (const ob of overlay.orderBlocks) {
+    const h = ob.maxPrice - ob.minPrice;
+    const gap = h * gapFrac;
+    zones.push({
+      id: `ob-${ob.id}`,
+      startTime: ob.startTime,
+      endTime: ob.endTime,
+      minPrice: ob.minPrice - gap,
+      maxPrice: ob.maxPrice + gap,
+      fvgKind: null,
+      fvgMinPrice: 0,
+      fvgMaxPrice: 0,
+    });
+  }
+
+  for (const s of overlay.structure) {
+    const band = s.level * 0.001;
+    const gap = band * gapFrac;
+    zones.push({
+      id: `str-${s.id}`,
+      startTime: s.levelTime,
+      endTime: s.retestTime ?? s.breakTime,
+      minPrice: s.level - band - gap,
+      maxPrice: s.level + band + gap,
+      fvgKind: null,
+      fvgMinPrice: 0,
+      fvgMaxPrice: 0,
+    });
+  }
+
+  return zones;
+}
+
+function candleInZone(candle: Candle5m, zone: SmcZoneRect): boolean {
+  if (candle.timestamp <= zone.startTime || candle.timestamp > zone.endTime) return false;
+  if (candle.high < zone.minPrice || candle.low > zone.maxPrice) return false;
+  return true;
+}
+
+function fvgFillPct(zone: SmcZoneRect, candle: Candle5m): number {
+  if (zone.fvgKind === null) return 0;
+  const height = zone.fvgMaxPrice - zone.fvgMinPrice;
+  if (height <= 0) return 0;
+  if (zone.fvgKind === 'bull') {
+    const penetration = zone.fvgMaxPrice - candle.low;
+    return Math.max(0, Math.min(100, (penetration / height) * 100));
+  }
+  const penetration = candle.high - zone.fvgMinPrice;
+  return Math.max(0, Math.min(100, (penetration / height) * 100));
+}
+
+export function runBacktest(
+  candles: readonly Candle5m[],
+  overlay: SmcOverlay,
+  settings: BacktestSettings,
+): BacktestReport {
+  const zones = collectZones(overlay, settings.zoneGapPct);
+  const trades: BacktestTrade[] = [];
+  const zoneEntryCount = new Map<string, number>();
+  const zoneFillMax = new Map<string, number>();
+
+  for (let i = 0; i < candles.length; i++) {
+    const candle = candles[i]!;
+
+    const check = checkSignal(candle);
+    if (check.type === null) {
+      for (const zone of zones) {
+        if (zone.fvgKind !== null && candle.timestamp > zone.startTime) {
+          const fill = fvgFillPct(zone, candle);
+          const prev = zoneFillMax.get(zone.id) ?? 0;
+          if (fill > prev) zoneFillMax.set(zone.id, fill);
+        }
+      }
+      continue;
+    }
+
+    for (const zone of zones) {
+      if (!candleInZone(candle, zone)) continue;
+
+      if (zone.fvgKind !== null) {
+        const maxFill = zoneFillMax.get(zone.id) ?? 0;
+        if (maxFill > settings.fvgMaxFillPct) continue;
+      }
+
+      const count = zoneEntryCount.get(zone.id) ?? 0;
+      if (count > settings.maxReentries) continue;
+
+      const type = check.type;
+      const entryPrice = candle.close;
+      const stopOffset = entryPrice * (settings.stopPct / 100);
+
+      let stopPrice: Price;
+      let takePrice: Price;
+
+      if (type === 'LONG') {
+        stopPrice = entryPrice - stopOffset;
+        const risk = entryPrice - stopPrice;
+        takePrice = entryPrice + risk * settings.rewardRatio;
+      } else {
+        stopPrice = entryPrice + stopOffset;
+        const risk = stopPrice - entryPrice;
+        takePrice = entryPrice - risk * settings.rewardRatio;
+      }
+
+      let outcome: BacktestTrade['outcome'] = 'open';
+      let exitTime: TimestampMs | null = null;
+      let exitPrice: Price | null = null;
+      let pnlR = 0;
+
+      for (let j = i + 1; j < candles.length; j++) {
+        const future = candles[j]!;
+        if (type === 'LONG') {
+          if (future.low <= stopPrice) {
+            outcome = 'loss';
+            exitTime = future.timestamp;
+            exitPrice = stopPrice;
+            pnlR = -1;
+            break;
+          }
+          if (future.high >= takePrice) {
+            outcome = 'win';
+            exitTime = future.timestamp;
+            exitPrice = takePrice;
+            pnlR = settings.rewardRatio;
+            break;
+          }
+        } else {
+          if (future.high >= stopPrice) {
+            outcome = 'loss';
+            exitTime = future.timestamp;
+            exitPrice = stopPrice;
+            pnlR = -1;
+            break;
+          }
+          if (future.low <= takePrice) {
+            outcome = 'win';
+            exitTime = future.timestamp;
+            exitPrice = takePrice;
+            pnlR = settings.rewardRatio;
+            break;
+          }
+        }
+      }
+
+      const tradeId = `${zone.id}::${candle.timestamp}::${type}::${count}`;
+      trades.push({
+        id: tradeId,
+        type,
+        zoneId: zone.id,
+        entryNumber: count,
+        entryTime: candle.timestamp,
+        entryPrice,
+        stopPrice,
+        takePrice,
+        outcome,
+        exitTime,
+        exitPrice,
+        pnlR,
+      });
+
+      if (outcome === 'loss') {
+        zoneEntryCount.set(zone.id, count + 1);
+      } else {
+        zoneEntryCount.set(zone.id, settings.maxReentries + 1);
+      }
+    }
+
+    for (const zone of zones) {
+      if (zone.fvgKind !== null && candle.timestamp > zone.startTime) {
+        const fill = fvgFillPct(zone, candle);
+        const prev = zoneFillMax.get(zone.id) ?? 0;
+        if (fill > prev) zoneFillMax.set(zone.id, fill);
+      }
+    }
+  }
+
+  const wins = trades.filter((t) => t.outcome === 'win').length;
+  const losses = trades.filter((t) => t.outcome === 'loss').length;
+  const openTrades = trades.filter((t) => t.outcome === 'open').length;
+  const closed = wins + losses;
+  const totalPnlR = trades.reduce((sum, t) => sum + t.pnlR, 0);
+
+  let maxConsecutiveLosses = 0;
+  let currentStreak = 0;
+  for (const t of trades) {
+    if (t.outcome === 'loss') {
+      currentStreak++;
+      if (currentStreak > maxConsecutiveLosses) maxConsecutiveLosses = currentStreak;
+    } else if (t.outcome === 'win') {
+      currentStreak = 0;
+    }
+  }
+
+  return {
+    totalTrades: trades.length,
+    wins,
+    losses,
+    openTrades,
+    winRate: closed > 0 ? wins / closed : 0,
+    totalPnlR,
+    avgPnlR: closed > 0 ? totalPnlR / closed : 0,
+    maxConsecutiveLosses,
+    trades,
+  };
+}

@@ -41,6 +41,9 @@ import { renderSignalHighlight } from '@/engine/highlights';
 import { hitTestCandle } from '@/engine/hitTest';
 import { renderSmcOverlay } from '@/engine/smc/render';
 import type { SmcOverlay } from '@/engine/smc/types';
+import { renderBacktestTrades, renderBacktestZones } from '@/backtest/renderTrades';
+import type { BacktestTrade } from '@/backtest/types';
+import type { SmcZoneRect } from '@/backtest/runBacktest';
 import { useChartViewport } from '@/hooks/useChartViewport';
 import { usePOIDrawing } from '@/hooks/usePOIDrawing';
 import type { Candle5m, Candle15m, Candle1h, POIZone, Signal, Timeframe } from '@/types';
@@ -90,6 +93,10 @@ interface ChartCanvasProps {
   onHoverCluster?: (info: HoveredClusterInfo | null) => void;
   /** Передаём наружу handle ресета вьюпорта и зума, чтобы App мог переходить HTF↔LTF */
   onViewportApi?: (api: ChartViewportApi) => void;
+  /** Сделки бэктеста для визуализации на графике. */
+  backtestTrades: readonly BacktestTrade[];
+  /** Расширенные зоны бэктеста (с gap). */
+  backtestZones: readonly SmcZoneRect[];
 }
 
 export interface HoveredClusterInfo {
@@ -122,6 +129,8 @@ export function ChartCanvas({
   onHoverCandle,
   onHoverCluster,
   onViewportApi,
+  backtestTrades,
+  backtestZones,
 }: ChartCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mainCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -366,6 +375,14 @@ export function ChartCanvas({
           selectedSignalId,
         });
       }
+
+      // Бэктест: зоны с gap и сделки (entry/stop/take).
+      if (backtestZones && backtestZones.length > 0) {
+        renderBacktestZones({ ctx, metrics, viewport, zones: backtestZones });
+      }
+      if (backtestTrades && backtestTrades.length > 0) {
+        renderBacktestTrades({ ctx, metrics, viewport, trades: backtestTrades, chartTf });
+      }
     });
     return () => {
       if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
@@ -388,6 +405,8 @@ export function ChartCanvas({
     selectedSignalCandle,
     htfBehaviour,
     smcOverlay,
+    backtestTrades,
+    backtestZones,
   ]);
 
   // ============================================================================

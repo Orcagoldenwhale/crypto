@@ -47,7 +47,7 @@ describe('findFVGs', () => {
     expect(f.kind).toBe('bull');
     expect(f.minPrice).toBe(10);
     expect(f.maxPrice).toBe(12);
-    expect(f.startTime).toBe(T0);
+    expect(f.startTime).toBe(T0 + 2 * M15);
     expect(f.unmitigated).toBe(true);
   });
 

@@ -162,6 +162,24 @@ export function SmcSettingsPopover({
         />
       </Field>
 
+      <Field
+        label="FVG fill-порог (%)"
+        hint="FVG валиден, пока не перекрыт более чем на X%"
+      >
+        <input
+          type="number"
+          min={0}
+          max={100}
+          step={5}
+          value={options.fvgMaxFillPct}
+          onChange={(e) => {
+            const v = parseInt(e.target.value, 10);
+            if (Number.isFinite(v)) setField('fvgMaxFillPct', clamp(v, 0, 100));
+          }}
+          className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
+        />
+      </Field>
+
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-medium text-tv-text">

@@ -75,7 +75,7 @@ export function Toolbox({
   const modKey = isMac ? '⌘' : 'Ctrl';
 
   return (
-    <div className="absolute top-16 left-4 z-20 flex flex-col gap-1.5 rounded-lg border border-tv-border bg-tv-panel/95 p-1.5 shadow-2xl backdrop-blur-sm">
+    <div className="absolute top-2 left-4 z-20 flex flex-col gap-1 rounded-lg border border-tv-border bg-tv-panel/95 p-1.5 shadow-2xl backdrop-blur-sm">
       <ToolButton
         title="Навигация (V)"
         active={tool === 'pointer'}
@@ -98,7 +98,7 @@ export function Toolbox({
         <Square className="h-5 w-5" />
       </ToolButton>
 
-      <div className="mx-auto my-1 h-px w-6 bg-tv-border" />
+      <div className="mx-auto my-0.5 h-px w-6 bg-tv-border" />
 
       <ToolButton
         title={canUndo ? `Отменить (${modKey}+Z)` : 'Нечего отменять'}
@@ -116,7 +116,7 @@ export function Toolbox({
         <Redo2 className="h-5 w-5" />
       </ToolButton>
 
-      <div className="mx-auto my-1 h-px w-6 bg-tv-border" />
+      <div className="mx-auto my-0.5 h-px w-6 bg-tv-border" />
 
       <ToolButton
         title={scanTitle}
@@ -139,7 +139,7 @@ export function Toolbox({
       {/* SMC-индикатор: показываем только там, где он активен (HTF/single). */}
       {smcLayers && (
         <>
-          <div className="mx-auto my-1 h-px w-6 bg-tv-border" />
+          <div className="mx-auto my-0.5 h-px w-6 bg-tv-border" />
           <ToolButton
             title={
               smcLayers.fvg
@@ -200,7 +200,7 @@ export function Toolbox({
       {/* Полное руководство — всегда внизу панели, отделено разделителем. */}
       {onOpenHelp && (
         <>
-          <div className="mx-auto my-1 h-px w-6 bg-tv-border" />
+          <div className="mx-auto my-0.5 h-px w-6 bg-tv-border" />
           <ToolButton title="Полное руководство (?)" onClick={onOpenHelp}>
             <HelpCircle className="h-5 w-5" />
           </ToolButton>

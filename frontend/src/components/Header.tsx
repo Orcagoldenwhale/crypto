@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Maximize2, FileText, ArrowLeft, Sparkles, FolderOpen, Radio } from 'lucide-react';
+import { Maximize2, FileText, ArrowLeft, Sparkles, FolderOpen, Radio, FlaskConical } from 'lucide-react';
 import type { LiveStatus, Timeframe } from '@/types';
 import type { LiveDebugStats } from '@/data/liveCandleManager';
 import { APP_VERSION, buildTimeShort } from '@/version';
@@ -32,6 +32,9 @@ interface HeaderProps {
   liveStats: LiveDebugStats | null;
   /** Тоггл live-режима. */
   onToggleLive: () => void;
+  /** Бэктест: открыть/закрыть панель настроек. */
+  backtestOpen: boolean;
+  onToggleBacktest: () => void;
 }
 
 export function Header({
@@ -48,6 +51,8 @@ export function Header({
   liveActive,
   liveStats,
   onToggleLive,
+  backtestOpen,
+  onToggleBacktest,
 }: HeaderProps) {
   // input type=file держим скрытым и кликаем программно — стандартная техника.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -119,6 +124,19 @@ export function Header({
             Назад к HTF
           </button>
         )}
+        <button
+          type="button"
+          onClick={onToggleBacktest}
+          title="Бэктест стратегии по включённым SMC-слоям"
+          className={
+            backtestOpen
+              ? 'flex items-center gap-2 rounded border border-amber-500 bg-amber-500/20 px-3 py-1.5 text-sm font-medium text-amber-300 transition-colors hover:bg-amber-500/30'
+              : 'flex items-center gap-2 rounded border border-tv-border bg-tv-panel-hover px-3 py-1.5 text-sm font-medium text-tv-text transition-colors hover:bg-tv-panel-active'
+          }
+        >
+          <FlaskConical className="h-4 w-4" />
+          Бэктест
+        </button>
         <button
           type="button"
           onClick={onLoadMock}
