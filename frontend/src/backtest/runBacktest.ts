@@ -301,9 +301,20 @@ export function runBacktest(
     }
   }
 
-  console.groupCollapsed(`[BT] Backtest: ${trades.length} trades, ${wins}W/${losses}L, ${totalPnlR >= 0 ? '+' : ''}${totalPnlR.toFixed(1)}R  (${log.length} log entries)`);
-  for (const line of log) console.log(line);
-  console.groupEnd();
+  const logText = log.join('\n');
+  try {
+    const blob = new Blob([logText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), {
+      href: url,
+      download: 'backtest-log.txt',
+      style: 'display:none',
+    });
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch { /* SSR / worker */ }
 
   return {
     totalTrades: trades.length,
