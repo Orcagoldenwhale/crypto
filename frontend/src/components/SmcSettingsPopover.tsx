@@ -1,23 +1,18 @@
 /**
- * Модальная панель настроек SMC-индикатора (центр экрана).
+ * Полноэкранная модалка настроек SMC.
  *
- * Поля:
- *   1. lookback (int 2..50)              — окно для swing-points;
- *   2. equalityTolerancePct (% 0..5)     — допуск близости equal-highs/lows
- *      (хранится как доля 0..0.05, отображается как % 0..5);
- *   3. hideMitigated.{layer} (4 чекбокса) — независимо прятать отработанные
- *      элементы для FVG, Liquidity, Structure, Order Blocks. Плюс кнопка
- *      «всё / ничего» для быстрого тоггла одной рукой.
+ * Архитектура:
+ *   - один общий контейнер на 90vw × 90vh;
+ *   - адаптивный CSS-grid: 1 колонка на узких, 2 на средних, 3 на широких;
+ *   - каждый раздел — отдельная карточка `<SectionCard>` с заголовком и
+ *     своими настройками. Добавить новый раздел = добавить ещё одну карточку.
+ *   - порядок секций: Общие → по индикаторам (FVG, Liquidity, Structure,
+ *     OB, Breaker, Rejection).
  *
- * Раньше попап якорился у кнопки-шестерёнки и часто упирался в нижний край
- * экрана (особенно при коротких viewport). Теперь — центрированная модалка
- * с лёгким backdrop'ом: всегда видна целиком, ничего не обрезается.
- *
- * Закрытие: клик по backdrop / Esc / крестик. anchorX/anchorY оставлены в
- * пропсах для совместимости с Toolbox, но больше не используются.
+ * Закрытие: backdrop / Esc / крестик.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import type { SmcHideMitigated, SmcOptions } from '@/engine/smc/types';
 
@@ -25,10 +20,6 @@ interface SmcSettingsPopoverProps {
   options: SmcOptions;
   onChange: (next: SmcOptions) => void;
   onClose: () => void;
-  /**
-   * Открыть полное руководство. Если не передан — ссылка «Открыть инструкцию»
-   * не отображается (Toolbox при этом всё равно показывает свою иконку «?»).
-   */
   onOpenHelp?: () => void;
   /** @deprecated не используется (модалка центрируется во viewport). */
   anchorX?: number;
@@ -36,32 +27,14 @@ interface SmcSettingsPopoverProps {
   anchorY?: number;
 }
 
-interface HideToggleSpec {
-  key: keyof SmcHideMitigated;
-  label: string;
-  hint: string;
-}
-
-const HIDE_TOGGLES: readonly HideToggleSpec[] = [
-  { key: 'fvg', label: 'FVG', hint: 'отработанные (цена возвращалась)' },
-  { key: 'liquidity', label: 'Liquidity', hint: 'снятые (был sweep)' },
-  { key: 'structure', label: 'Structure', hint: 'BOS/CHoCH с уже состоявшимся retest' },
-  { key: 'orderBlocks', label: 'Order Blocks', hint: 'отработанные (цена касалась OB)' },
-  { key: 'breakerBlocks', label: 'Breaker Blocks', hint: 'отработанные (цена касалась BB)' },
-  { key: 'rejectionBlocks', label: 'Rejection Blocks', hint: 'отработанные (цена возвращалась в фитиль)' },
-];
-
 export function SmcSettingsPopover({
   options,
   onChange,
   onClose,
   onOpenHelp,
 }: SmcSettingsPopoverProps) {
-  const popoverRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
-  // Esc → закрыть. Клик по backdrop ловим прямо на корневом элементе ниже
-  // (см. handleBackdropClick) — так не нужно отслеживать глобальный mousedown
-  // и нет риска ложных закрытий из-за вложенных порталов.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -70,293 +43,338 @@ export function SmcSettingsPopover({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  /**
-   * Закрытие по клику в backdrop. Реагируем ТОЛЬКО если клик пришёлся на
-   * сам backdrop — иначе любой клик по контенту карточки закрывал бы её
-   * (event.target всплывает наверх).
-   */
   const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) onClose();
   };
 
-  const setField = <K extends keyof SmcOptions>(
-    key: K,
-    value: SmcOptions[K],
-  ) => {
+  const setField = <K extends keyof SmcOptions>(key: K, value: SmcOptions[K]) => {
     onChange({ ...options, [key]: value });
   };
 
-  const setHideField = (key: keyof SmcHideMitigated, value: boolean) => {
+  const setHide = (key: keyof SmcHideMitigated, value: boolean) => {
     onChange({
       ...options,
       hideMitigated: { ...options.hideMitigated, [key]: value },
     });
   };
 
-  const allChecked = HIDE_TOGGLES.every((t) => options.hideMitigated[t.key]);
-  const someChecked = HIDE_TOGGLES.some((t) => options.hideMitigated[t.key]);
-  const setAll = (v: boolean) => {
-    onChange({
-      ...options,
-      hideMitigated: { fvg: v, liquidity: v, structure: v, orderBlocks: v },
-    });
+  const hideKeys: (keyof SmcHideMitigated)[] = [
+    'fvg', 'liquidity', 'structure', 'orderBlocks', 'breakerBlocks', 'rejectionBlocks',
+  ];
+  const allHidden = hideKeys.every((k) => options.hideMitigated[k]);
+  const setAllHide = (v: boolean) => {
+    const next: SmcHideMitigated = {
+      fvg: v, liquidity: v, structure: v, orderBlocks: v, breakerBlocks: v, rejectionBlocks: v,
+    };
+    onChange({ ...options, hideMitigated: next });
   };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
       onMouseDown={handleBackdropClick}
       role="presentation"
     >
       <div
-        ref={popoverRef}
-        className="flex max-h-[90vh] w-80 flex-col gap-3 overflow-y-auto rounded-md border border-tv-border bg-tv-panel/98 p-4 shadow-2xl"
+        ref={modalRef}
+        className="flex h-[90vh] w-[90vw] max-w-7xl flex-col rounded-lg border border-tv-border bg-tv-panel shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-label="Настройки SMC"
       >
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-tv-text">
-          Настройки SMC
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-tv-text-muted hover:text-tv-text"
-          aria-label="Закрыть"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <Field label="Lookback (свечи)" hint="окно swing-points с каждой стороны">
-        <input
-          type="number"
-          min={2}
-          max={50}
-          step={1}
-          value={options.lookback}
-          onChange={(e) => {
-            const v = parseInt(e.target.value, 10);
-            if (Number.isFinite(v)) setField('lookback', clamp(v, 2, 50));
-          }}
-          className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
-        />
-      </Field>
-
-      <Field
-        label="Допуск equal-highs/lows (%)"
-        hint="близость двух swing-points как доля от цены"
-      >
-        <input
-          type="number"
-          min={0}
-          max={5}
-          step={0.05}
-          value={(options.equalityTolerancePct * 100).toFixed(2)}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value);
-            if (Number.isFinite(v)) {
-              setField('equalityTolerancePct', clamp(v / 100, 0, 0.05));
-            }
-          }}
-          className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
-        />
-      </Field>
-
-      <Field
-        label="FVG fill-порог (%)"
-        hint="FVG валиден, пока не перекрыт более чем на X%"
-      >
-        <input
-          type="number"
-          min={0}
-          max={100}
-          step={5}
-          value={options.fvgMaxFillPct}
-          onChange={(e) => {
-            const v = parseInt(e.target.value, 10);
-            if (Number.isFinite(v)) setField('fvgMaxFillPct', clamp(v, 0, 100));
-          }}
-          className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
-        />
-      </Field>
-
-      <Field
-        label="Мин. FVG (%)"
-        hint="FVG меньше порога не отображаются"
-      >
-        <input
-          type="number"
-          min={0}
-          max={5}
-          step={0.05}
-          value={options.minFvgPct}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value);
-            if (Number.isFinite(v)) setField('minFvgPct', clamp(v, 0, 5));
-          }}
-          className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
-        />
-      </Field>
-
-      <div className="flex flex-col gap-1.5 border-t border-tv-border pt-2">
-        <span className="text-[11px] font-medium text-tv-text">
-          Order Blocks
-        </span>
-
-        <Field
-          label="Выделение OB"
-          hint="wicks — по фитилям, body — по телу, auto — авто-выбор"
-        >
-          <select
-            value={options.obExtraction}
-            onChange={(e) => setField('obExtraction', e.target.value as typeof options.obExtraction)}
-            className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
-          >
-            <option value="wicks">По фитилям (wicks)</option>
-            <option value="body">По телу (body)</option>
-            <option value="auto">Авто (auto)</option>
-          </select>
-        </Field>
-
-        <label className="flex cursor-pointer items-start gap-2 text-xs text-tv-text">
-          <input
-            type="checkbox"
-            checked={options.obUseMeanThreshold}
-            onChange={(e) => setField('obUseMeanThreshold', e.target.checked)}
-            className="mt-0.5 h-3.5 w-3.5 accent-tv-accent"
-          />
-          <span className="flex flex-col gap-0.5">
-            <span>Учитывать Mean Threshold</span>
-            <span className="text-[10px] text-tv-text-muted">
-              OB живёт пока тело свечи не закрылось за 50% от тела OB
+        {/* Header */}
+        <header className="flex items-center justify-between border-b border-tv-border px-5 py-3">
+          <div className="flex items-baseline gap-3">
+            <span className="text-sm font-semibold uppercase tracking-wider text-tv-text">
+              Настройки SMC
             </span>
-          </span>
-        </label>
+            <button
+              type="button"
+              onClick={() => setAllHide(!allHidden)}
+              className="rounded border border-tv-border px-2 py-0.5 text-[10px] text-tv-text-muted hover:text-tv-text"
+            >
+              {allHidden ? 'Показать всё отработанное' : 'Скрыть всё отработанное'}
+            </button>
+          </div>
+          <div className="flex items-center gap-3">
+            {onOpenHelp && (
+              <button
+                type="button"
+                onClick={() => { onOpenHelp(); onClose(); }}
+                className="text-xs text-tv-accent hover:underline"
+              >
+                Полное руководство →
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-tv-text-muted hover:text-tv-text"
+              aria-label="Закрыть"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </header>
 
-        <label className="flex cursor-pointer items-start gap-2 text-xs text-tv-text">
-          <input
-            type="checkbox"
-            checked={options.obRequireAbsorption}
-            onChange={(e) => setField('obRequireAbsorption', e.target.checked)}
-            className="mt-0.5 h-3.5 w-3.5 accent-tv-accent"
-          />
-          <span className="flex flex-col gap-0.5">
-            <span>Требовать поглощение телом</span>
-            <span className="text-[10px] text-tv-text-muted">
-              импульсная свеча должна закрыться за телом OB
-            </span>
-          </span>
-        </label>
-      </div>
+        {/* Grid of sections */}
+        <div className="flex-1 overflow-y-auto p-5">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
 
-      <div className="flex flex-col gap-1.5 border-t border-tv-border pt-2">
-        <span className="text-[11px] font-medium text-tv-text">
-          Rejection Blocks
-        </span>
+            <SectionCard title="Общие" subtitle="Параметры структурного анализа">
+              <NumberField
+                label="Lookback (свечи)"
+                hint="окно swing-points с каждой стороны"
+                value={options.lookback}
+                min={2}
+                max={50}
+                step={1}
+                onChange={(v) => setField('lookback', v)}
+              />
+              <NumberField
+                label="Допуск equal-highs/lows (%)"
+                hint="близость двух swing-points как доля от цены"
+                value={+(options.equalityTolerancePct * 100).toFixed(2)}
+                min={0}
+                max={5}
+                step={0.05}
+                onChange={(v) => setField('equalityTolerancePct', v / 100)}
+              />
+            </SectionCard>
 
-        <Field
-          label="Фитиль / тело (≥)"
-          hint="свеча считается RB только если фитиль ≥ N × тело"
-        >
-          <input
-            type="number"
-            min={1}
-            max={20}
-            step={0.5}
-            value={options.rbWickRatio}
-            onChange={(e) => {
-              const v = parseFloat(e.target.value);
-              if (Number.isFinite(v)) setField('rbWickRatio', clamp(v, 1, 20));
-            }}
-            className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
-          />
-        </Field>
+            <SectionCard title="FVG" subtitle="Fair Value Gaps">
+              <NumberField
+                label="Fill-порог (%)"
+                hint="FVG валиден, пока не перекрыт более чем на X%"
+                value={options.fvgMaxFillPct}
+                min={0}
+                max={100}
+                step={5}
+                onChange={(v) => setField('fvgMaxFillPct', v)}
+              />
+              <NumberField
+                label="Мин. размер FVG (%)"
+                hint="FVG меньше порога не отображаются"
+                value={options.minFvgPct}
+                min={0}
+                max={5}
+                step={0.05}
+                onChange={(v) => setField('minFvgPct', v)}
+              />
+              <CheckboxRow
+                label="Прятать отработанные"
+                hint="цена возвращалась в зону"
+                checked={options.hideMitigated.fvg}
+                onChange={(v) => setHide('fvg', v)}
+              />
+            </SectionCard>
 
-        <label className="flex cursor-pointer items-start gap-2 text-xs text-tv-text">
-          <input
-            type="checkbox"
-            checked={options.rbRequireSweep}
-            onChange={(e) => setField('rbRequireSweep', e.target.checked)}
-            className="mt-0.5 h-3.5 w-3.5 accent-tv-accent"
-          />
-          <span className="flex flex-col gap-0.5">
-            <span>Требовать sweep ликвидности</span>
-            <span className="text-[10px] text-tv-text-muted">
-              фитиль должен пробивать swing-high/low
-            </span>
-          </span>
-        </label>
-      </div>
+            <SectionCard title="Liquidity" subtitle="Equal highs / lows, sweeps">
+              <CheckboxRow
+                label="Прятать отработанные"
+                hint="ликвидность уже снята (был sweep)"
+                checked={options.hideMitigated.liquidity}
+                onChange={(v) => setHide('liquidity', v)}
+              />
+            </SectionCard>
 
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-medium text-tv-text">
-            Прятать отработанные
-          </span>
-          <button
-            type="button"
-            onClick={() => setAll(!allChecked)}
-            className="rounded border border-tv-border px-1.5 py-0.5 text-[10px] text-tv-text-muted hover:text-tv-text"
-            aria-label={allChecked ? 'Снять все' : 'Включить все'}
-          >
-            {allChecked ? 'снять все' : someChecked ? 'все' : 'все'}
-          </button>
+            <SectionCard title="Structure" subtitle="BOS / CHoCH + retest">
+              <CheckboxRow
+                label="Прятать отработанные"
+                hint="BOS/CHoCH с уже состоявшимся retest"
+                checked={options.hideMitigated.structure}
+                onChange={(v) => setHide('structure', v)}
+              />
+            </SectionCard>
+
+            <SectionCard title="Order Blocks" subtitle="Классический OB и его варианты">
+              <SelectField
+                label="Выделение OB"
+                hint="wicks — по фитилям, body — по телу, auto — авто"
+                value={options.obExtraction}
+                onChange={(v) => setField('obExtraction', v as SmcOptions['obExtraction'])}
+                options={[
+                  { value: 'wicks', label: 'По фитилям (wicks)' },
+                  { value: 'body', label: 'По телу (body)' },
+                  { value: 'auto', label: 'Авто (auto)' },
+                ]}
+              />
+              <CheckboxRow
+                label="Учитывать Mean Threshold"
+                hint="OB живёт пока тело свечи не закрылось за 50% от тела OB"
+                checked={options.obUseMeanThreshold}
+                onChange={(v) => setField('obUseMeanThreshold', v)}
+              />
+              <CheckboxRow
+                label="Требовать поглощение телом"
+                hint="импульсная свеча должна закрыться за телом OB"
+                checked={options.obRequireAbsorption}
+                onChange={(v) => setField('obRequireAbsorption', v)}
+              />
+              <CheckboxRow
+                label="Прятать отработанные"
+                hint="цена касалась OB"
+                checked={options.hideMitigated.orderBlocks}
+                onChange={(v) => setHide('orderBlocks', v)}
+              />
+            </SectionCard>
+
+            <SectionCard title="Breaker Blocks" subtitle="Пробитый OB с разворотом структуры">
+              <CheckboxRow
+                label="Прятать отработанные"
+                hint="цена касалась BB"
+                checked={options.hideMitigated.breakerBlocks}
+                onChange={(v) => setHide('breakerBlocks', v)}
+              />
+            </SectionCard>
+
+            <SectionCard title="Rejection Blocks" subtitle="Длинный фитиль на снятии ликвидности">
+              <NumberField
+                label="Фитиль / тело (≥)"
+                hint="свеча считается RB только если фитиль ≥ N × тело"
+                value={options.rbWickRatio}
+                min={1}
+                max={20}
+                step={0.5}
+                onChange={(v) => setField('rbWickRatio', v)}
+              />
+              <CheckboxRow
+                label="Требовать sweep ликвидности"
+                hint="фитиль должен пробивать swing-high/low"
+                checked={options.rbRequireSweep}
+                onChange={(v) => setField('rbRequireSweep', v)}
+              />
+              <CheckboxRow
+                label="Прятать отработанные"
+                hint="цена возвращалась внутрь фитиля"
+                checked={options.hideMitigated.rejectionBlocks}
+                onChange={(v) => setHide('rejectionBlocks', v)}
+              />
+            </SectionCard>
+
+          </div>
         </div>
-        {HIDE_TOGGLES.map((t) => (
-          <label
-            key={t.key}
-            className="flex cursor-pointer items-start gap-2 text-xs text-tv-text"
-          >
-            <input
-              type="checkbox"
-              checked={options.hideMitigated[t.key]}
-              onChange={(e) => setHideField(t.key, e.target.checked)}
-              className="mt-0.5 h-3.5 w-3.5 accent-tv-accent"
-            />
-            <span className="flex flex-col gap-0.5">
-              <span>{t.label}</span>
-              <span className="text-[10px] text-tv-text-muted">{t.hint}</span>
-            </span>
-          </label>
-        ))}
-      </div>
-
-      {/* Ссылка на полное руководство — внизу карточки, отделена линией.
-          Дублирует иконку «?» из Toolbox: пользователь, открывший настройки
-          и не нашедший нужный параметр, попадает в подробное описание. */}
-      {onOpenHelp && (
-        <div className="mt-1 border-t border-tv-border pt-2">
-          <button
-            type="button"
-            onClick={() => {
-              onOpenHelp();
-              onClose();
-            }}
-            className="text-[11px] text-tv-accent hover:underline"
-          >
-            Открыть полное руководство →
-          </button>
-        </div>
-      )}
       </div>
     </div>
   );
 }
 
-interface FieldProps {
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
+// ============================================================================
+// Building blocks
+// ============================================================================
+
+function SectionCard({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="flex flex-col gap-3 rounded-md border border-tv-border bg-tv-bg-deep/40 p-4">
+      <header className="flex flex-col gap-0.5 border-b border-tv-border pb-2">
+        <h3 className="text-sm font-semibold text-tv-text">{title}</h3>
+        {subtitle && (
+          <p className="text-[10px] text-tv-text-muted">{subtitle}</p>
+        )}
+      </header>
+      <div className="flex flex-col gap-3">{children}</div>
+    </section>
+  );
 }
 
-function Field({ label, hint, children }: FieldProps) {
+function NumberField({
+  label,
+  hint,
+  value,
+  min,
+  max,
+  step,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+}) {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-[11px] font-medium text-tv-text">{label}</span>
-      {children}
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => {
+          const v = parseFloat(e.target.value);
+          if (Number.isFinite(v)) onChange(clamp(v, min, max));
+        }}
+        className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
+      />
       {hint && <span className="text-[10px] text-tv-text-muted">{hint}</span>}
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  hint,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  options: readonly { value: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[11px] font-medium text-tv-text">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+      {hint && <span className="text-[10px] text-tv-text-muted">{hint}</span>}
+    </label>
+  );
+}
+
+function CheckboxRow({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2 text-xs text-tv-text">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-3.5 w-3.5 accent-tv-accent"
+      />
+      <span className="flex flex-col gap-0.5">
+        <span>{label}</span>
+        {hint && <span className="text-[10px] text-tv-text-muted">{hint}</span>}
+      </span>
     </label>
   );
 }
