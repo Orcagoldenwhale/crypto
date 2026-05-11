@@ -69,6 +69,16 @@ export function BacktestPanel({ onRun, report, running }: BacktestPanelProps) {
                 onChange={(v) => update('maxReentries', v)}
               />
             </SettingRow>
+
+            <SettingRow label="Макс. тело (%)" title="Макс. размер тела сигнальной свечи в % от цены. 0 = без ограничения">
+              <NumberInput
+                value={settings.maxCandleBodyPct}
+                min={0}
+                max={10}
+                step={0.1}
+                onChange={(v) => update('maxCandleBodyPct', v)}
+              />
+            </SettingRow>
           </div>
 
           {/* Run button */}

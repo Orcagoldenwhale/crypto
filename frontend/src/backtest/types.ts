@@ -15,6 +15,8 @@ export interface BacktestSettings {
   maxReentries: number;
   /** FVG считается валидным, пока не перекрыт более чем на X%. 0–100. */
   fvgMaxFillPct: number;
+  /** Макс. размер тела сигнальной свечи в % от цены. 0 = без ограничения. */
+  maxCandleBodyPct: number;
 }
 
 export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
@@ -23,6 +25,7 @@ export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
   zoneGapPct: 10,
   maxReentries: 1,
   fvgMaxFillPct: 50,
+  maxCandleBodyPct: 1,
 };
 
 /** Одна сделка бэктеста. */

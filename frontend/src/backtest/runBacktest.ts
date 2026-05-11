@@ -134,6 +134,11 @@ export function runBacktest(
       continue;
     }
 
+    if (settings.maxCandleBodyPct > 0) {
+      const bodyPct = (Math.abs(candle.close - candle.open) / candle.close) * 100;
+      if (bodyPct > settings.maxCandleBodyPct) continue;
+    }
+
     for (const zone of zones) {
       if (!candleInZone(candle, zone)) continue;
 
