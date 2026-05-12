@@ -269,6 +269,18 @@ export function OptimizerPanel({
       return;
     }
 
+    // Защита от случайного запуска "миллионов" — generateGrid пишет
+    // всё в память и при ~1M+ комбинаций браузер может зависнуть.
+    if (!resume && total > 100_000) {
+      const eta = formatEta(estimateRunMs(total));
+      const ok = window.confirm(
+        `Внимание!\n\nКомбинаций: ${total.toLocaleString('ru-RU')}.\nПримерное время прогона: ${eta}.\n\n` +
+        `Сначала будет построен массив из ~${total.toLocaleString('ru-RU')} объектов — это может занять несколько секунд и съесть много памяти. ` +
+        `Браузер может временно зависнуть.\n\nПродолжить?`,
+      );
+      if (!ok) return;
+    }
+
     const combos = resume?.startCombos ?? generateGrid(optSettings.specs);
     const initialTop = resume?.initialTop ?? [];
     if (!resume) {
@@ -555,9 +567,17 @@ export function OptimizerPanel({
           <div className="border-b border-tv-border p-3">
                 <div className="mb-2 flex items-center justify-between text-xs text-tv-text">
                   <span>
-                    Всего комбинаций: <strong className="text-tv-accent">{total === Infinity ? '∞' : total}</strong>
+                    Всего комбинаций: <strong className={comboCountColor(total)}>{total === Infinity ? '∞' : total.toLocaleString('ru-RU')}</strong>
+                    {total > 1000 && total !== Infinity && (
+                      <span className="ml-2 text-[10px] text-tv-text-muted">~ETA: {formatEta(estimateRunMs(total))}</span>
+                    )}
                   </span>
-                  {total > 10000 && (
+                  {total > 100_000 && total !== Infinity && (
+                    <span className="text-[10px] text-red-400">
+                      ⚠ Слишком много комбинаций — браузер может зависнуть на этапе генерации.
+                    </span>
+                  )}
+                  {total > 10000 && total <= 100_000 && (
                     <span className="text-[10px] text-amber-400">
                       Большой объём — может занять время. Можно прервать.
                     </span>
@@ -894,6 +914,32 @@ function formatParams(
 function clampInt(v: number, lo: number, hi: number, fallback: number): number {
   if (!Number.isFinite(v)) return fallback;
   return Math.max(lo, Math.min(hi, Math.round(v)));
+}
+
+/**
+ * Грубая оценка времени прогона: ~2мс на одну BT-комбинацию + SMC-пересчёты
+ * амортизируются. Для расчёта берём 3мс/комбо как верхнюю оценку.
+ */
+function estimateRunMs(total: number): number {
+  return total * 3;
+}
+
+function formatEta(ms: number): string {
+  if (ms < 1000) return `${ms}мс`;
+  const sec = Math.round(ms / 1000);
+  if (sec < 60) return `${sec}с`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}мин`;
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  return remMin === 0 ? `${hr}ч` : `${hr}ч ${remMin}мин`;
+}
+
+function comboCountColor(total: number): string {
+  if (total === Infinity) return 'text-red-400';
+  if (total > 100_000) return 'text-red-400';
+  if (total > 10_000) return 'text-amber-400';
+  return 'text-tv-accent';
 }
 
 // Silence unused-warnings for narrowed types BacktestKey / SmcKey (re-exported for callers).
