@@ -1,60 +1,137 @@
 /**
  * Полноэкранная модалка оптимизатора параметров бэктеста.
  *
- * Слева — конфигурация параметров (грид с from/to/step или toggles).
- * Справа — кнопка запуска, прогресс, таблица топ-N результатов.
+ * Слева — конфигурация параметров, сгруппированных по разделам:
+ *   - Бэктест (всегда)
+ *   - SMC: Структура (всегда — lookback касается всех)
+ *   - SMC: FVG (только если layers.fvg)
+ *   - SMC: OB (только если layers.orderBlocks)
+ *   - SMC: RB (только если layers.rejectionBlocks)
  *
- * При клике "Применить" на строке результатов — настройки уходят в
- * BacktestSettings (через onApply), пользователь сам жмёт "Запустить"
- * в обычной панели бэктеста для верификации.
+ * Справа — кнопка запуска, прогресс, таблица топ-N результатов.
+ * При "Применить" к строке: BT-параметры идут в backtestSettings,
+ * SMC-параметры — в smcOptions через onApplySmc.
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Play, Rocket, X, Square } from 'lucide-react';
 import type { BacktestReport, BacktestSettings } from '@/backtest/types';
-import type { Candle5m } from '@/types';
-import type { SmcOverlay } from '@/engine/smc/types';
+import type { Candle1h, Candle15m, Candle5m } from '@/types';
+import type { SmcLayers, SmcOptions, SmcOverlay } from '@/engine/smc/types';
 import {
   DEFAULT_OPTIMIZER_SETTINGS,
   METRIC_LABEL,
+  isSmcKey,
+  type BacktestKey,
   type OptimizableKey,
   type OptimizerMetric,
   type OptimizerResult,
   type OptimizerSettings,
   type ParamSpec,
+  type SmcKey,
 } from '@/optimizer/types';
 import { countCombinations, generateGrid } from '@/optimizer/generateGrid';
 import { runOptimizer } from '@/optimizer/runOptimizer';
 
 interface OptimizerPanelProps {
   baseSettings: BacktestSettings;
+  baseSmcOpts: SmcOptions;
+  smcLayers: SmcLayers;
   candles: readonly Candle5m[];
-  overlay: SmcOverlay;
+  smcCandles: readonly (Candle1h | Candle15m | Candle5m)[];
+  baseOverlay: SmcOverlay;
   onClose: () => void;
-  /** Применить найденные параметры к BacktestSettings. */
+  /** Применить найденные BT-параметры. */
   onApply: (next: BacktestSettings) => void;
+  /** Применить найденные SMC-параметры. */
+  onApplySmc: (next: SmcOptions) => void;
 }
 
 const PARAM_LABELS: Record<OptimizableKey, string> = {
+  // Бэктест
   stopPct: 'Стоп-лосс (%)',
   rewardRatio: 'Reward (R:R)',
   zoneGapPct: 'Gap зоны (%)',
   maxReentries: 'Перезаходов',
-  minFvgPct: 'Мин. FVG (%)',
+  minFvgPct: 'Мин. FVG (%) [бэктест]',
   maxCandleBodyPct: 'Макс. тело свечи (%)',
   reentryAfterWin: 'Перезаход после win',
   slBehindObWick: 'SL за фитилём OB',
   slBehindFvgEdge: 'SL за дальней границей FVG',
   validityByMt: 'Валидность по MT',
   entryPoint: 'Точка входа',
+  // SMC
+  lookback: 'Lookback (свечи)',
+  fvgMaxFillPct: 'FVG fill-порог (%) [SMC]',
+  obExtraction: 'Выделение OB',
+  obUseMeanThreshold: 'Учитывать MT для OB',
+  obRequireAbsorption: 'Требовать поглощение',
+  obAllowMultiCandle: 'Multi-candle OB',
+  obSearchAtSweep: 'Искать OB на sweep',
+  obSearchAtFvg: 'Искать OB на тесте FVG',
+  obSearchAtPrevBlock: 'Искать OB на тесте prev OB',
+  rbWickRatio: 'RB фитиль/тело (≥)',
+  rbRequireSweep: 'RB требовать sweep',
+  rbAlsoAtFvg: 'RB фитиль в FVG',
+  rbUseMeanThreshold: 'Учитывать MT для RB',
 };
+
+interface SectionConfig {
+  title: string;
+  keys: OptimizableKey[];
+  /** Условие, по которому раздел отображается. */
+  visible: (layers: SmcLayers) => boolean;
+}
+
+const SECTIONS: SectionConfig[] = [
+  {
+    title: 'Бэктест',
+    visible: () => true,
+    keys: [
+      'stopPct', 'rewardRatio', 'zoneGapPct', 'maxReentries',
+      'minFvgPct', 'maxCandleBodyPct',
+      'reentryAfterWin', 'slBehindObWick', 'slBehindFvgEdge', 'validityByMt',
+      'entryPoint',
+    ],
+  },
+  {
+    title: 'SMC: Структура',
+    visible: () => true,
+    keys: ['lookback'],
+  },
+  {
+    title: 'SMC: FVG',
+    visible: (l) => l.fvg,
+    keys: ['fvgMaxFillPct'],
+  },
+  {
+    title: 'SMC: Order Blocks',
+    visible: (l) => l.orderBlocks || l.breakerBlocks,
+    keys: [
+      'obExtraction', 'obUseMeanThreshold', 'obRequireAbsorption',
+      'obAllowMultiCandle',
+      'obSearchAtSweep', 'obSearchAtFvg', 'obSearchAtPrevBlock',
+    ],
+  },
+  {
+    title: 'SMC: Rejection Blocks',
+    visible: (l) => l.rejectionBlocks,
+    keys: [
+      'rbWickRatio', 'rbRequireSweep', 'rbAlsoAtFvg', 'rbUseMeanThreshold',
+    ],
+  },
+];
 
 export function OptimizerPanel({
   baseSettings,
+  baseSmcOpts,
+  smcLayers,
   candles,
-  overlay,
+  smcCandles,
+  baseOverlay,
   onClose,
   onApply,
+  onApplySmc,
 }: OptimizerPanelProps) {
   const [optSettings, setOptSettings] = useState<OptimizerSettings>(DEFAULT_OPTIMIZER_SETTINGS);
   const [running, setRunning] = useState(false);
@@ -66,7 +143,6 @@ export function OptimizerPanel({
   const [results, setResults] = useState<OptimizerResult[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
-  // Esc → закрыть.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -84,6 +160,17 @@ export function OptimizerPanel({
     setOptSettings((prev) => ({ ...prev, specs: { ...prev.specs, [key]: next } }));
   };
 
+  /** Группа кнопок для пакетного включения/выключения раздела. */
+  const enableSection = (section: SectionConfig, value: boolean) => {
+    setOptSettings((prev) => {
+      const next = { ...prev.specs };
+      for (const k of section.keys) {
+        next[k] = { ...next[k], enabled: value };
+      }
+      return { ...prev, specs: next };
+    });
+  };
+
   const handleRun = async () => {
     if (total === 0 || running) return;
     if (candles.length === 0) {
@@ -99,7 +186,10 @@ export function OptimizerPanel({
     try {
       const found = await runOptimizer({
         candles,
-        overlay,
+        smcCandles,
+        baseOverlay,
+        baseSmcOpts,
+        smcLayers,
         baseSettings,
         combos,
         optSettings,
@@ -116,6 +206,8 @@ export function OptimizerPanel({
   const handleBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget && !running) onClose();
   };
+
+  const visibleSections = SECTIONS.filter((s) => s.visible(smcLayers));
 
   return (
     <div
@@ -148,24 +240,18 @@ export function OptimizerPanel({
         </header>
 
         <div className="flex-1 overflow-hidden">
-          <div className="grid h-full grid-cols-1 md:grid-cols-[minmax(360px,1fr)_2fr]">
-            {/* Левая колонка: параметры */}
+          <div className="grid h-full grid-cols-1 md:grid-cols-[minmax(380px,1fr)_2fr]">
             <div className="overflow-y-auto border-r border-tv-border p-4">
-              <SectionTitle>Параметры перебора</SectionTitle>
-              <p className="mb-3 text-[10px] text-tv-text-muted">
-                Включите параметры, задайте диапазон. Оптимизатор переберёт все
-                сочетания и найдёт лучшие по выбранной метрике.
-              </p>
-              <div className="flex flex-col gap-2">
-                {(Object.keys(optSettings.specs) as OptimizableKey[]).map((key) => (
-                  <ParamRow
-                    key={key}
-                    label={PARAM_LABELS[key]}
-                    spec={optSettings.specs[key]}
-                    onChange={(next) => setSpec(key, next)}
-                  />
-                ))}
-              </div>
+              {visibleSections.map((section) => (
+                <SectionBlock
+                  key={section.title}
+                  title={section.title}
+                  specs={section.keys.map((k) => ({ key: k, spec: optSettings.specs[k] }))}
+                  onChangeSpec={(k, next) => setSpec(k, next)}
+                  onEnableAll={() => enableSection(section, true)}
+                  onDisableAll={() => enableSection(section, false)}
+                />
+              ))}
 
               <SectionTitle className="mt-5">Метрика</SectionTitle>
               <select
@@ -195,7 +281,6 @@ export function OptimizerPanel({
               </label>
             </div>
 
-            {/* Правая колонка: запуск и результаты */}
             <div className="flex flex-col overflow-hidden">
               <div className="border-b border-tv-border p-4">
                 <div className="mb-2 flex items-center justify-between text-xs text-tv-text">
@@ -259,7 +344,9 @@ export function OptimizerPanel({
                     results={results}
                     metric={optSettings.metric}
                     baseSettings={baseSettings}
+                    baseSmcOpts={baseSmcOpts}
                     onApply={onApply}
+                    onApplySmc={onApplySmc}
                   />
                 )}
               </div>
@@ -280,6 +367,46 @@ function SectionTitle({ children, className }: { children: ReactNode; className?
     <h3 className={`mb-2 text-[10px] font-semibold uppercase tracking-wider text-tv-text-muted ${className ?? ''}`}>
       {children}
     </h3>
+  );
+}
+
+function SectionBlock({
+  title,
+  specs,
+  onChangeSpec,
+  onEnableAll,
+  onDisableAll,
+}: {
+  title: string;
+  specs: readonly { key: OptimizableKey; spec: ParamSpec }[];
+  onChangeSpec: (key: OptimizableKey, next: ParamSpec) => void;
+  onEnableAll: () => void;
+  onDisableAll: () => void;
+}) {
+  const allOn = specs.every((s) => s.spec.enabled);
+  return (
+    <div className="mb-4">
+      <div className="mb-2 flex items-center justify-between">
+        <SectionTitle className="!mb-0">{title}</SectionTitle>
+        <button
+          type="button"
+          onClick={() => (allOn ? onDisableAll() : onEnableAll())}
+          className="rounded border border-tv-border px-1.5 py-0.5 text-[10px] text-tv-text-muted hover:text-tv-text"
+        >
+          {allOn ? 'выключить все' : 'включить все'}
+        </button>
+      </div>
+      <div className="flex flex-col gap-2">
+        {specs.map(({ key, spec }) => (
+          <ParamRow
+            key={key}
+            label={PARAM_LABELS[key]}
+            spec={spec}
+            onChange={(next) => onChangeSpec(key, next)}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -311,35 +438,16 @@ function ParamRow({
       </label>
       {enabled && spec.type === 'number' && (
         <div className="mt-2 grid grid-cols-3 gap-1">
-          <NumInput
-            label="от"
-            value={spec.from}
-            step={spec.step}
-            onChange={(v) => onChange({ ...spec, from: v })}
-          />
-          <NumInput
-            label="до"
-            value={spec.to}
-            step={spec.step}
-            onChange={(v) => onChange({ ...spec, to: v })}
-          />
-          <NumInput
-            label="шаг"
-            value={spec.step}
-            step={spec.step}
-            onChange={(v) => onChange({ ...spec, step: Math.max(0.001, v) })}
-          />
+          <NumInput label="от" value={spec.from} step={spec.step} onChange={(v) => onChange({ ...spec, from: v })} />
+          <NumInput label="до" value={spec.to} step={spec.step} onChange={(v) => onChange({ ...spec, to: v })} />
+          <NumInput label="шаг" value={spec.step} step={spec.step} onChange={(v) => onChange({ ...spec, step: Math.max(0.001, v) })} />
         </div>
       )}
       {enabled && spec.type === 'bool' && (
-        <p className="mt-1 text-[10px] text-tv-text-muted">
-          Перебираются оба значения: false, true
-        </p>
+        <p className="mt-1 text-[10px] text-tv-text-muted">Перебираются оба значения: false, true</p>
       )}
       {enabled && spec.type === 'enum' && (
-        <p className="mt-1 text-[10px] text-tv-text-muted">
-          Значения: {spec.values.join(', ')}
-        </p>
+        <p className="mt-1 text-[10px] text-tv-text-muted">Значения: {spec.values.join(', ')}</p>
       )}
     </div>
   );
@@ -350,17 +458,7 @@ function countNumberValues(spec: { from: number; to: number; step: number }): nu
   return Math.floor((spec.to - spec.from) / spec.step + 1e-9) + 1;
 }
 
-function NumInput({
-  label,
-  value,
-  step,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  step: number;
-  onChange: (v: number) => void;
-}) {
+function NumInput({ label, value, step, onChange }: { label: string; value: number; step: number; onChange: (v: number) => void }) {
   return (
     <label className="flex flex-col gap-0.5">
       <span className="text-[10px] text-tv-text-muted">{label}</span>
@@ -382,12 +480,16 @@ function ResultsTable({
   results,
   metric,
   baseSettings,
+  baseSmcOpts,
   onApply,
+  onApplySmc,
 }: {
   results: readonly OptimizerResult[];
   metric: OptimizerMetric;
   baseSettings: BacktestSettings;
+  baseSmcOpts: SmcOptions;
   onApply: (next: BacktestSettings) => void;
+  onApplySmc: (next: SmcOptions) => void;
 }) {
   return (
     <table className="w-full text-[11px]">
@@ -410,7 +512,9 @@ function ResultsTable({
             idx={idx + 1}
             result={r}
             baseSettings={baseSettings}
+            baseSmcOpts={baseSmcOpts}
             onApply={onApply}
+            onApplySmc={onApplySmc}
           />
         ))}
       </tbody>
@@ -422,14 +526,22 @@ function ResultRow({
   idx,
   result,
   baseSettings,
+  baseSmcOpts,
   onApply,
+  onApplySmc,
 }: {
   idx: number;
   result: OptimizerResult;
   baseSettings: BacktestSettings;
+  baseSmcOpts: SmcOptions;
   onApply: (next: BacktestSettings) => void;
+  onApplySmc: (next: SmcOptions) => void;
 }) {
-  const { report, params, score } = result;
+  const { report, btParams, smcParams, score } = result;
+  const handleApply = () => {
+    onApplySmc({ ...baseSmcOpts, ...smcParams });
+    onApply({ ...baseSettings, ...btParams });
+  };
   return (
     <tr className="border-t border-tv-border/40 hover:bg-tv-panel-hover">
       <td className="px-2 py-1 text-tv-text-muted">{idx}</td>
@@ -446,12 +558,12 @@ function ResultRow({
         {report.totalPnlR >= 0 ? '+' : ''}{report.totalPnlR.toFixed(1)}
       </td>
       <td className="px-2 py-1 font-mono text-tv-text-muted text-[10px]">
-        {formatParams(params)}
+        {formatParams(btParams, smcParams)}
       </td>
       <td className="px-2 py-1">
         <button
           type="button"
-          onClick={() => onApply({ ...baseSettings, ...params })}
+          onClick={handleApply}
           className="rounded border border-tv-border px-2 py-0.5 text-[10px] text-tv-accent hover:bg-tv-accent hover:text-white"
         >
           Применить
@@ -466,9 +578,13 @@ function formatScore(score: number): string {
   return score.toFixed(3);
 }
 
-function formatParams(params: Partial<BacktestSettings>): string {
-  return Object.entries(params)
-    .map(([k, v]) => `${k}=${typeof v === 'number' ? v.toFixed(3).replace(/\.?0+$/, '') : v}`)
+function formatParams(bt: Partial<BacktestSettings>, smc: Partial<SmcOptions>): string {
+  const all: [string, unknown][] = [
+    ...Object.entries(bt).map(([k, v]) => [k as string, v] as [string, unknown]),
+    ...Object.entries(smc).map(([k, v]) => [`${isSmcKey(k as OptimizableKey) ? 'smc.' : ''}${k}` as string, v] as [string, unknown]),
+  ];
+  return all
+    .map(([k, v]) => `${k}=${typeof v === 'number' ? (v as number).toFixed(3).replace(/\.?0+$/, '') : String(v)}`)
     .join(' · ');
 }
 
@@ -476,3 +592,6 @@ function clampInt(v: number, lo: number, hi: number, fallback: number): number {
   if (!Number.isFinite(v)) return fallback;
   return Math.max(lo, Math.min(hi, Math.round(v)));
 }
+
+// Silence unused-warnings for narrowed types BacktestKey / SmcKey (re-exported for callers).
+export type { BacktestKey, SmcKey };

@@ -8,6 +8,7 @@
  */
 
 import type { BacktestReport, BacktestSettings } from '@/backtest/types';
+import type { SmcOptions } from '@/engine/smc/types';
 
 // ============================================================================
 // Метрики
@@ -33,10 +34,11 @@ export const METRIC_LABEL: Record<OptimizerMetric, string> = {
 // ============================================================================
 
 /**
- * Все ключи `BacktestSettings`, которые можно варьировать в Фазе 1
- * (не требуют пересчёта smcOverlay).
+ * Все ключи, которые можно варьировать.
+ *   - "BT.*"  — поля BacktestSettings (быстрые, общий smcOverlay)
+ *   - "SMC.*" — поля SmcOptions (требуют пересчёта overlay; группируем)
  */
-export type OptimizableKey =
+export type BacktestKey =
   | 'stopPct'
   | 'rewardRatio'
   | 'zoneGapPct'
@@ -48,6 +50,48 @@ export type OptimizableKey =
   | 'slBehindFvgEdge'
   | 'validityByMt'
   | 'entryPoint';
+
+/**
+ * Подмножество SmcOptions, которые имеет смысл варьировать.
+ * Эти параметры влияют на детектирование зон, поэтому пересчёт overlay
+ * нужен — группируем комбинации по уникальному SMC-подмножеству.
+ */
+export type SmcKey =
+  | 'lookback'
+  | 'fvgMaxFillPct'
+  | 'obExtraction'
+  | 'obUseMeanThreshold'
+  | 'obRequireAbsorption'
+  | 'obAllowMultiCandle'
+  | 'obSearchAtSweep'
+  | 'obSearchAtFvg'
+  | 'obSearchAtPrevBlock'
+  | 'rbWickRatio'
+  | 'rbRequireSweep'
+  | 'rbAlsoAtFvg'
+  | 'rbUseMeanThreshold';
+
+export type OptimizableKey = BacktestKey | SmcKey;
+
+export const SMC_KEYS: ReadonlySet<SmcKey> = new Set<SmcKey>([
+  'lookback',
+  'fvgMaxFillPct',
+  'obExtraction',
+  'obUseMeanThreshold',
+  'obRequireAbsorption',
+  'obAllowMultiCandle',
+  'obSearchAtSweep',
+  'obSearchAtFvg',
+  'obSearchAtPrevBlock',
+  'rbWickRatio',
+  'rbRequireSweep',
+  'rbAlsoAtFvg',
+  'rbUseMeanThreshold',
+]);
+
+export function isSmcKey(k: OptimizableKey): k is SmcKey {
+  return (SMC_KEYS as ReadonlySet<string>).has(k);
+}
 
 export interface NumberParamSpec {
   type: 'number';
@@ -94,6 +138,7 @@ export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
   metric: 'composite',
   topN: 20,
   specs: {
+    // ===== Бэктест =====
     stopPct: { type: 'number', enabled: true, from: 0.1, to: 0.5, step: 0.05 },
     rewardRatio: { type: 'number', enabled: true, from: 1, to: 3, step: 0.5 },
     zoneGapPct: { type: 'number', enabled: false, from: 0, to: 30, step: 10 },
@@ -105,6 +150,20 @@ export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
     slBehindFvgEdge: { type: 'bool', enabled: false, bothValues: true },
     validityByMt: { type: 'bool', enabled: false, bothValues: true },
     entryPoint: { type: 'enum', enabled: false, values: ['close', 'mt', 'wick'] },
+    // ===== SMC =====
+    lookback: { type: 'number', enabled: false, from: 3, to: 10, step: 1 },
+    fvgMaxFillPct: { type: 'number', enabled: false, from: 30, to: 80, step: 10 },
+    obExtraction: { type: 'enum', enabled: false, values: ['wicks', 'body', 'auto'] },
+    obUseMeanThreshold: { type: 'bool', enabled: false, bothValues: true },
+    obRequireAbsorption: { type: 'bool', enabled: false, bothValues: true },
+    obAllowMultiCandle: { type: 'bool', enabled: false, bothValues: true },
+    obSearchAtSweep: { type: 'bool', enabled: false, bothValues: true },
+    obSearchAtFvg: { type: 'bool', enabled: false, bothValues: true },
+    obSearchAtPrevBlock: { type: 'bool', enabled: false, bothValues: true },
+    rbWickRatio: { type: 'number', enabled: false, from: 1.5, to: 4, step: 0.5 },
+    rbRequireSweep: { type: 'bool', enabled: false, bothValues: true },
+    rbAlsoAtFvg: { type: 'bool', enabled: false, bothValues: true },
+    rbUseMeanThreshold: { type: 'bool', enabled: false, bothValues: true },
   },
 };
 
@@ -113,8 +172,10 @@ export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
 // ============================================================================
 
 export interface OptimizerResult {
-  /** Конкретные значения параметров (только тех, что варьировались). */
-  params: Partial<BacktestSettings>;
+  /** Значения варьируемых полей BacktestSettings. */
+  btParams: Partial<BacktestSettings>;
+  /** Значения варьируемых полей SmcOptions. */
+  smcParams: Partial<SmcOptions>;
   /** Полный отчёт бэктеста. */
   report: BacktestReport;
   /** Численная метрика, по которой сортировали. */

@@ -1417,13 +1417,19 @@ export default function App() {
         {optimizerOpen && (
           <OptimizerPanel
             baseSettings={{ ...backtestSettings, fvgMaxFillPct: smcOpts.fvgMaxFillPct }}
+            baseSmcOpts={smcOpts}
+            smcLayers={smcLayers}
             candles={ltfData as Candle5m[]}
-            overlay={smcOverlay}
+            smcCandles={isSingleTf ? chartData : htfData}
+            baseOverlay={smcOverlay}
             onClose={handleToggleOptimizer}
             onApply={(next) => {
               setBacktestSettings(next);
               setOptimizerOpen(false);
               setBacktestOpen(true);
+            }}
+            onApplySmc={(next) => {
+              setSmcOpts(next);
             }}
           />
         )}

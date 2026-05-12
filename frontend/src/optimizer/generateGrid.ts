@@ -3,19 +3,29 @@
  *
  * Берёт OptimizerSpecs, для каждого enabled-параметра разворачивает в
  * массив значений, потом считает декартово произведение и возвращает
- * массив комбинаций — каждая комбинация это Partial<BacktestSettings>.
+ * массив комбинаций. Каждая комбинация — это пара {bt, smc}: значения
+ * полей BacktestSettings и SmcOptions, которые надо подставить.
  */
 
 import type { BacktestSettings } from '@/backtest/types';
-import type { OptimizableKey, OptimizerSpecs, ParamSpec } from './types';
+import type { SmcOptions } from '@/engine/smc/types';
+import {
+  isSmcKey,
+  type OptimizableKey,
+  type OptimizerSpecs,
+  type ParamSpec,
+} from './types';
+
+export interface Combo {
+  bt: Partial<BacktestSettings>;
+  smc: Partial<SmcOptions>;
+}
 
 /** Список значений для одного включённого параметра. */
 function expandSpec(spec: ParamSpec): unknown[] {
   if (!spec.enabled) return [];
   if (spec.type === 'number') {
     const out: number[] = [];
-    // step может быть дробным — копим через округление, чтобы не накапливалась
-    // ошибка плавающей точки (0.1 + 0.1 + 0.1 ≠ 0.3).
     const steps = Math.floor((spec.to - spec.from) / spec.step + 1e-9) + 1;
     for (let i = 0; i < steps; i++) {
       const v = spec.from + i * spec.step;
@@ -26,7 +36,6 @@ function expandSpec(spec: ParamSpec): unknown[] {
   if (spec.type === 'bool') {
     return spec.bothValues ? [false, true] : [];
   }
-  // enum
   return [...spec.values];
 }
 
@@ -37,25 +46,22 @@ function round6(v: number): number {
 /** Сколько комбинаций даст текущая конфигурация (без генерации). */
 export function countCombinations(specs: OptimizerSpecs): number {
   let total = 1;
+  let anyEnabled = false;
   for (const key of Object.keys(specs) as OptimizableKey[]) {
     const arr = expandSpec(specs[key]);
     if (arr.length === 0) continue;
+    anyEnabled = true;
     total *= arr.length;
-    if (total > 1e9) return Number.POSITIVE_INFINITY; // защита от переполнения
+    if (total > 1e9) return Number.POSITIVE_INFINITY;
   }
-  // Если ничего не включено — 0 комбинаций (нечего перебирать).
-  for (const key of Object.keys(specs) as OptimizableKey[]) {
-    if (specs[key].enabled) return total;
-  }
-  return 0;
+  return anyEnabled ? total : 0;
 }
 
 /**
- * Декартово произведение всех включённых параметров.
- * Возвращает массив Partial<BacktestSettings> — каждая запись это
- * один набор значений для прогона.
+ * Декартово произведение всех включённых параметров. Возвращает
+ * массив комбинаций — каждая разнесена по двум объектам {bt, smc}.
  */
-export function generateGrid(specs: OptimizerSpecs): Partial<BacktestSettings>[] {
+export function generateGrid(specs: OptimizerSpecs): Combo[] {
   const entries: { key: OptimizableKey; values: unknown[] }[] = [];
   for (const key of Object.keys(specs) as OptimizableKey[]) {
     const arr = expandSpec(specs[key]);
@@ -63,15 +69,32 @@ export function generateGrid(specs: OptimizerSpecs): Partial<BacktestSettings>[]
   }
   if (entries.length === 0) return [];
 
-  let acc: Partial<BacktestSettings>[] = [{}];
+  let acc: Combo[] = [{ bt: {}, smc: {} }];
   for (const { key, values } of entries) {
-    const next: Partial<BacktestSettings>[] = [];
+    const next: Combo[] = [];
     for (const base of acc) {
       for (const v of values) {
-        next.push({ ...base, [key]: v });
+        if (isSmcKey(key)) {
+          next.push({ bt: base.bt, smc: { ...base.smc, [key]: v } });
+        } else {
+          next.push({ bt: { ...base.bt, [key]: v }, smc: base.smc });
+        }
       }
     }
     acc = next;
   }
   return acc;
+}
+
+/**
+ * Стабильный ключ для группировки комбинаций по их SMC-подмножеству.
+ * Все комбинации с одинаковым ключом могут переиспользовать один overlay.
+ */
+export function smcGroupKey(smc: Partial<SmcOptions>): string {
+  const keys = Object.keys(smc).sort();
+  const parts: string[] = [];
+  for (const k of keys) {
+    parts.push(`${k}=${JSON.stringify((smc as Record<string, unknown>)[k])}`);
+  }
+  return parts.join('|');
 }
