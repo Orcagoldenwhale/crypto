@@ -23,8 +23,8 @@ describe('generateGrid', () => {
     expect(countCombinations(specs)).toBe(5);
     const grid = generateGrid(specs);
     expect(grid).toHaveLength(5);
-    expect(grid[0]).toEqual({ bt: { stopPct: 0.1 }, smc: {} });
-    expect(grid[4]).toEqual({ bt: { stopPct: 0.5 }, smc: {} });
+    expect(grid[0]).toEqual({ bt: { stopPct: 0.1 }, smc: {}, data: {} });
+    expect(grid[4]).toEqual({ bt: { stopPct: 0.5 }, smc: {}, data: {} });
   });
 
   it('декартово произведение двух BT-параметров', () => {
@@ -63,8 +63,8 @@ describe('generateGrid', () => {
     });
     const grid = generateGrid(specs);
     expect(grid).toHaveLength(3);
-    expect(grid[0]).toEqual({ bt: {}, smc: { lookback: 3 } });
-    expect(grid[2]).toEqual({ bt: {}, smc: { lookback: 5 } });
+    expect(grid[0]).toEqual({ bt: {}, smc: { lookback: 3 }, data: {} });
+    expect(grid[2]).toEqual({ bt: {}, smc: { lookback: 5 }, data: {} });
   });
 
   it('смешанная конфигурация BT + SMC', () => {
@@ -79,6 +79,19 @@ describe('generateGrid', () => {
       expect(typeof c.bt.stopPct).toBe('number');
       expect(typeof c.smc.lookback).toBe('number');
     }
+  });
+
+  it('tickMultiplier попадает в combo.data, парсится в число', () => {
+    const specs = makeSpecs({
+      tickMultiplier: { type: 'enum', enabled: true, values: ['1', '2', '5'] },
+    });
+    const grid = generateGrid(specs);
+    expect(grid).toHaveLength(3);
+    const mults = grid.map((c) => c.data.tickMultiplier).sort();
+    expect(mults).toEqual([1, 2, 5]);
+    // bt и smc пустые.
+    expect(grid[0]!.bt).toEqual({});
+    expect(grid[0]!.smc).toEqual({});
   });
 
   it('smcGroupKey стабилен для одинаковых объектов', () => {

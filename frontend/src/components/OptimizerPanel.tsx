@@ -15,9 +15,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Rocket, X, Square } from 'lucide-react';
-import type { BacktestReport, BacktestSettings } from '@/backtest/types';
-import type { Candle1h, Candle15m, Candle5m } from '@/types';
-import type { SmcLayers, SmcOptions, SmcOverlay } from '@/engine/smc/types';
+import type { BacktestSettings } from '@/backtest/types';
+import type { SmcLayers, SmcOptions } from '@/engine/smc/types';
+import type { PreparedData } from '@/optimizer/runOptimizer';
 import {
   DEFAULT_OPTIMIZER_SETTINGS,
   METRIC_LABEL,
@@ -37,9 +37,11 @@ interface OptimizerPanelProps {
   baseSettings: BacktestSettings;
   baseSmcOpts: SmcOptions;
   smcLayers: SmcLayers;
-  candles: readonly Candle5m[];
-  smcCandles: readonly (Candle1h | Candle15m | Candle5m)[];
-  baseOverlay: SmcOverlay;
+  /**
+   * Возвращает свечи для оптимизатора при заданном tickMultiplier.
+   * undefined = текущий множитель (как в основном приложении).
+   */
+  prepareData: (mult: number | undefined) => PreparedData;
   onClose: () => void;
   /** Применить найденные BT-параметры. */
   onApply: (next: BacktestSettings) => void;
@@ -48,6 +50,7 @@ interface OptimizerPanelProps {
 }
 
 const PARAM_LABELS: Record<OptimizableKey, string> = {
+  tickMultiplier: 'Tick multiplier',
   // Бэктест
   stopPct: 'Стоп-лосс (%)',
   rewardRatio: 'Reward (R:R)',
@@ -120,15 +123,18 @@ const SECTIONS: SectionConfig[] = [
       'rbWickRatio', 'rbRequireSweep', 'rbAlsoAtFvg', 'rbUseMeanThreshold',
     ],
   },
+  {
+    title: 'Данные',
+    visible: () => true,
+    keys: ['tickMultiplier'],
+  },
 ];
 
 export function OptimizerPanel({
   baseSettings,
   baseSmcOpts,
   smcLayers,
-  candles,
-  smcCandles,
-  baseOverlay,
+  prepareData,
   onClose,
   onApply,
   onApplySmc,
@@ -173,7 +179,9 @@ export function OptimizerPanel({
 
   const handleRun = async () => {
     if (total === 0 || running) return;
-    if (candles.length === 0) {
+    // Дешёвая sanity-проверка: пробуем получить текущие данные.
+    const probe = prepareData(undefined);
+    if (probe.candles.length === 0) {
       window.alert('Нет данных для оптимизации — сначала загрузите свечи.');
       return;
     }
@@ -185,9 +193,7 @@ export function OptimizerPanel({
     abortRef.current = ac;
     try {
       const found = await runOptimizer({
-        candles,
-        smcCandles,
-        baseOverlay,
+        prepareData,
         baseSmcOpts,
         smcLayers,
         baseSettings,
@@ -526,10 +532,12 @@ function ResultRow({
   onApply: (next: BacktestSettings) => void;
   onApplySmc: (next: SmcOptions) => void;
 }) {
-  const { report, btParams, smcParams, score } = result;
+  const { report, btParams, smcParams, dataParams, score } = result;
   const handleApply = () => {
     onApplySmc({ ...baseSmcOpts, ...smcParams });
     onApply({ ...baseSettings, ...btParams });
+    // Tick multiplier из dataParams применить нельзя через эти колбэки —
+    // пользователь сам поставит из тулбара. Показываем в строке параметров.
   };
   return (
     <tr className="border-t border-tv-border/40 hover:bg-tv-panel-hover">
@@ -547,7 +555,7 @@ function ResultRow({
         {report.totalPnlR >= 0 ? '+' : ''}{report.totalPnlR.toFixed(1)}
       </td>
       <td className="px-2 py-1 font-mono text-tv-text-muted text-[10px]">
-        {formatParams(btParams, smcParams)}
+        {formatParams(btParams, smcParams, dataParams)}
       </td>
       <td className="px-2 py-1">
         <button
@@ -567,10 +575,15 @@ function formatScore(score: number): string {
   return score.toFixed(3);
 }
 
-function formatParams(bt: Partial<BacktestSettings>, smc: Partial<SmcOptions>): string {
+function formatParams(
+  bt: Partial<BacktestSettings>,
+  smc: Partial<SmcOptions>,
+  data: { tickMultiplier?: number },
+): string {
   const all: [string, unknown][] = [
     ...Object.entries(bt).map(([k, v]) => [k as string, v] as [string, unknown]),
     ...Object.entries(smc).map(([k, v]) => [`${isSmcKey(k as OptimizableKey) ? 'smc.' : ''}${k}` as string, v] as [string, unknown]),
+    ...(data.tickMultiplier !== undefined ? [['mult', `×${data.tickMultiplier}`] as [string, unknown]] : []),
   ];
   return all
     .map(([k, v]) => `${k}=${typeof v === 'number' ? (v as number).toFixed(3).replace(/\.?0+$/, '') : String(v)}`)

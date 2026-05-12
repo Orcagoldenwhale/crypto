@@ -1419,9 +1419,21 @@ export default function App() {
             baseSettings={{ ...backtestSettings, fvgMaxFillPct: smcOpts.fvgMaxFillPct }}
             baseSmcOpts={smcOpts}
             smcLayers={smcLayers}
-            candles={ltfData as Candle5m[]}
-            smcCandles={isSingleTf ? chartData : htfData}
-            baseOverlay={smcOverlay}
+            prepareData={(mult) => {
+              const m = mult ?? effectiveMultiplier;
+              const d5m = regroupCandles(rawData5mWithLive, m);
+              const ltf = ltfTf === '5m'
+                ? d5m
+                : ltfTf === '15m'
+                  ? aggregate5mTo15mLtf(d5m)
+                  : aggregate5mTo1hLtf(d5m);
+              // В single-режиме HTF == LTF (с кластерами). В мультирежиме
+              // HTF не зависит от multiplier (OHLCV без кластеров).
+              const smcCandles = isSingleTf
+                ? ltf
+                : (htfTf === '1h' ? data1hOhlc : data15mOhlc);
+              return { candles: ltf as Candle5m[], smcCandles };
+            }}
             onClose={handleToggleOptimizer}
             onApply={(next) => {
               setBacktestSettings(next);

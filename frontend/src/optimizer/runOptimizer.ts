@@ -1,22 +1,20 @@
 /**
- * Запуск оптимизации с группировкой комбинаций по SMC-подмножеству.
+ * Запуск оптимизации с двухуровневой группировкой:
+ *   1) внешняя — по `tickMultiplier` (тяжёлая перегруппировка свеч);
+ *   2) внутренняя — по SMC-подмножеству (пересчёт overlay).
  *
- * Для каждой уникальной комбинации SMC-параметров overlay пересчитывается
- * ОДИН РАЗ через runSmcAnalysis. Затем все бэктесты с этим overlay'ем
- * прогоняются последовательно (это дёшево — миллисекунды на прогон).
- *
- * Чанкинг: каждые CHUNK_SIZE бэктестов отдаём UI через setTimeout(0).
- * Прогресс обновляется и можно прервать через AbortSignal.
+ * Для каждой пары (mult, smc-subset) тяжёлые операции выполняются ОДИН раз,
+ * все бэктесты этой группы переиспользуют результат. Чанкинг + AbortSignal
+ * сохранены.
  */
 
 import { runBacktest } from '@/backtest/runBacktest';
 import type { BacktestSettings } from '@/backtest/types';
 import { runSmcAnalysis } from '@/engine/smc';
 import type { SmcLayers, SmcOptions, SmcOverlay } from '@/engine/smc/types';
-import type { Candle5m } from '@/types';
-import type { Candle1h, Candle15m } from '@/types';
+import type { Candle1h, Candle15m, Candle5m } from '@/types';
 import { computeScore } from './metrics';
-import { smcGroupKey, type Combo } from './generateGrid';
+import { dataGroupKey, smcGroupKey, type Combo } from './generateGrid';
 import type {
   OptimizerProgress,
   OptimizerResult,
@@ -25,20 +23,21 @@ import type {
 
 const CHUNK_SIZE = 50;
 
-export interface RunOptimizerArgs {
-  /** LTF свечи для бэктеста. */
+/** Что callback возвращает для конкретного значения tickMultiplier. */
+export interface PreparedData {
   candles: readonly Candle5m[];
-  /** Свечи на которых считается smc-overlay (HTF в multi-режиме, иначе те же). */
   smcCandles: readonly (Candle1h | Candle15m | Candle5m)[];
-  /** Стартовый smcOverlay (для случая когда SMC-параметры не варьируются). */
-  baseOverlay: SmcOverlay;
-  /** Базовые SMC-настройки (на них накладываются варьируемые поля). */
+}
+
+export interface RunOptimizerArgs {
+  /**
+   * Получить набор свеч для заданного множителя. Если множитель не
+   * задан в комбинации — вызывается с undefined, возвращает текущее.
+   */
+  prepareData: (mult: number | undefined) => PreparedData;
   baseSmcOpts: SmcOptions;
-  /** Какие слои SMC активны. */
   smcLayers: SmcLayers;
-  /** Базовые настройки бэктеста. */
   baseSettings: BacktestSettings;
-  /** Все комбинации. */
   combos: readonly Combo[];
   optSettings: OptimizerSettings;
   signal?: AbortSignal;
@@ -46,9 +45,7 @@ export interface RunOptimizerArgs {
 }
 
 export async function runOptimizer({
-  candles,
-  smcCandles,
-  baseOverlay,
+  prepareData,
   baseSmcOpts,
   smcLayers,
   baseSettings,
@@ -61,56 +58,67 @@ export async function runOptimizer({
   const top: OptimizerResult[] = [];
   let bestScore: number | null = null;
 
-  // 1. Группируем комбинации по их SMC-подмножеству — для каждой группы
-  // overlay будет пересчитан один раз.
-  const groups = new Map<string, { smcOpts: SmcOptions; overlay: SmcOverlay | null; items: Combo[] }>();
+  // 1. Двухуровневая группировка: data → smc → comboList.
+  const dataGroups = new Map<string, { mult: number | undefined; smcGroups: Map<string, { smcOpts: SmcOptions; items: Combo[] }> }>();
   for (const c of combos) {
-    const key = smcGroupKey(c.smc);
-    let g = groups.get(key);
-    if (!g) {
-      const smcOpts: SmcOptions = { ...baseSmcOpts, ...c.smc };
-      g = { smcOpts, overlay: null, items: [] };
-      groups.set(key, g);
+    const dKey = dataGroupKey(c.data);
+    let dGroup = dataGroups.get(dKey);
+    if (!dGroup) {
+      dGroup = { mult: c.data.tickMultiplier, smcGroups: new Map() };
+      dataGroups.set(dKey, dGroup);
     }
-    g.items.push(c);
+    const sKey = smcGroupKey(c.smc);
+    let sGroup = dGroup.smcGroups.get(sKey);
+    if (!sGroup) {
+      const smcOpts: SmcOptions = { ...baseSmcOpts, ...c.smc };
+      sGroup = { smcOpts, items: [] };
+      dGroup.smcGroups.set(sKey, sGroup);
+    }
+    sGroup.items.push(c);
   }
 
   let processed = 0;
-  for (const g of groups.values()) {
+  for (const dGroup of dataGroups.values()) {
     if (signal?.aborted) break;
-
-    // Подготовить overlay: если SMC-перебор пустой (g.smcOpts === baseSmcOpts
-    // по содержанию), переиспользуем baseOverlay; иначе пересчитываем.
-    const isBaseSmc = Object.keys(g.items[0]?.smc ?? {}).length === 0;
-    const overlay = isBaseSmc
-      ? baseOverlay
-      : runSmcAnalysis(smcCandles, smcLayers, g.smcOpts);
-    g.overlay = overlay;
-    // Дать UI отрисоваться сразу после тяжёлого runSmcAnalysis.
+    const { candles, smcCandles } = prepareData(dGroup.mult);
+    // Дать UI отрисоваться после перегруппировки.
     await new Promise((r) => setTimeout(r, 0));
 
-    for (const c of g.items) {
+    for (const sGroup of dGroup.smcGroups.values()) {
       if (signal?.aborted) break;
-      const merged: BacktestSettings = {
-        ...baseQuiet,
-        ...c.bt,
-        // fvgMaxFillPct в BacktestSettings прокидывается из SmcOptions
-        // (см. App.tsx handleRunBacktest). Если оптимизируем его — берём
-        // из smc-перебора, иначе из base.
-        fvgMaxFillPct: c.smc.fvgMaxFillPct ?? g.smcOpts.fvgMaxFillPct,
-      };
-      const report = runBacktest(candles, overlay, merged);
-      const score = computeScore(report, optSettings.metric);
+      const overlay: SmcOverlay = runSmcAnalysis(smcCandles, smcLayers, sGroup.smcOpts);
+      await new Promise((r) => setTimeout(r, 0));
 
-      if (Number.isFinite(score)) {
-        insertSorted(top, { btParams: c.bt, smcParams: c.smc, report, score }, optSettings.topN);
-        if (bestScore === null || score > bestScore) bestScore = score;
-      }
+      for (const c of sGroup.items) {
+        if (signal?.aborted) break;
+        const merged: BacktestSettings = {
+          ...baseQuiet,
+          ...c.bt,
+          fvgMaxFillPct: c.smc.fvgMaxFillPct ?? sGroup.smcOpts.fvgMaxFillPct,
+        };
+        const report = runBacktest(candles, overlay, merged);
+        const score = computeScore(report, optSettings.metric);
 
-      processed++;
-      if (processed % CHUNK_SIZE === 0) {
-        onProgress?.({ done: processed, total: combos.length, bestScore });
-        await new Promise((r) => setTimeout(r, 0));
+        if (Number.isFinite(score)) {
+          insertSorted(
+            top,
+            {
+              btParams: c.bt,
+              smcParams: c.smc,
+              dataParams: c.data,
+              report,
+              score,
+            },
+            optSettings.topN,
+          );
+          if (bestScore === null || score > bestScore) bestScore = score;
+        }
+
+        processed++;
+        if (processed % CHUNK_SIZE === 0) {
+          onProgress?.({ done: processed, total: combos.length, bestScore });
+          await new Promise((r) => setTimeout(r, 0));
+        }
       }
     }
   }

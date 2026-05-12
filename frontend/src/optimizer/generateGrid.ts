@@ -10,15 +10,22 @@
 import type { BacktestSettings } from '@/backtest/types';
 import type { SmcOptions } from '@/engine/smc/types';
 import {
+  isDataKey,
   isSmcKey,
   type OptimizableKey,
   type OptimizerSpecs,
   type ParamSpec,
 } from './types';
 
+export interface ComboData {
+  /** Перегруппировка свеч (×1 / ×2 / ×5 / ×10). undefined = текущее. */
+  tickMultiplier?: number;
+}
+
 export interface Combo {
   bt: Partial<BacktestSettings>;
   smc: Partial<SmcOptions>;
+  data: ComboData;
 }
 
 /** Список значений для одного включённого параметра. */
@@ -69,15 +76,19 @@ export function generateGrid(specs: OptimizerSpecs): Combo[] {
   }
   if (entries.length === 0) return [];
 
-  let acc: Combo[] = [{ bt: {}, smc: {} }];
+  let acc: Combo[] = [{ bt: {}, smc: {}, data: {} }];
   for (const { key, values } of entries) {
     const next: Combo[] = [];
     for (const base of acc) {
       for (const v of values) {
-        if (isSmcKey(key)) {
-          next.push({ bt: base.bt, smc: { ...base.smc, [key]: v } });
+        if (isDataKey(key)) {
+          // tickMultiplier enum хранит строки '1'/'2'/..., приводим к number.
+          const num = typeof v === 'string' ? Number(v) : (v as number);
+          next.push({ bt: base.bt, smc: base.smc, data: { ...base.data, [key]: num } });
+        } else if (isSmcKey(key)) {
+          next.push({ bt: base.bt, smc: { ...base.smc, [key]: v }, data: base.data });
         } else {
-          next.push({ bt: { ...base.bt, [key]: v }, smc: base.smc });
+          next.push({ bt: { ...base.bt, [key]: v }, smc: base.smc, data: base.data });
         }
       }
     }
@@ -97,4 +108,8 @@ export function smcGroupKey(smc: Partial<SmcOptions>): string {
     parts.push(`${k}=${JSON.stringify((smc as Record<string, unknown>)[k])}`);
   }
   return parts.join('|');
+}
+
+export function dataGroupKey(data: ComboData): string {
+  return data.tickMultiplier === undefined ? '' : `mult=${data.tickMultiplier}`;
 }

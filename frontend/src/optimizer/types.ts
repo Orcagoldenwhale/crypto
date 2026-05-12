@@ -71,7 +71,13 @@ export type SmcKey =
   | 'rbAlsoAtFvg'
   | 'rbUseMeanThreshold';
 
-export type OptimizableKey = BacktestKey | SmcKey;
+/**
+ * Параметры пайплайна данных (не входят в BacktestSettings / SmcOptions).
+ * Менять их = переагрегировать свечи (тяжелее чем SMC-пересчёт).
+ */
+export type DataKey = 'tickMultiplier';
+
+export type OptimizableKey = BacktestKey | SmcKey | DataKey;
 
 export const SMC_KEYS: ReadonlySet<SmcKey> = new Set<SmcKey>([
   'lookback',
@@ -89,8 +95,14 @@ export const SMC_KEYS: ReadonlySet<SmcKey> = new Set<SmcKey>([
   'rbUseMeanThreshold',
 ]);
 
+export const DATA_KEYS: ReadonlySet<DataKey> = new Set<DataKey>(['tickMultiplier']);
+
 export function isSmcKey(k: OptimizableKey): k is SmcKey {
   return (SMC_KEYS as ReadonlySet<string>).has(k);
+}
+
+export function isDataKey(k: OptimizableKey): k is DataKey {
+  return (DATA_KEYS as ReadonlySet<string>).has(k);
 }
 
 export interface NumberParamSpec {
@@ -164,6 +176,8 @@ export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
     rbRequireSweep: { type: 'bool', enabled: false, bothValues: true },
     rbAlsoAtFvg: { type: 'bool', enabled: false, bothValues: true },
     rbUseMeanThreshold: { type: 'bool', enabled: false, bothValues: true },
+    // ===== Данные =====
+    tickMultiplier: { type: 'enum', enabled: false, values: ['1', '2', '5', '10'] },
   },
 };
 
@@ -176,6 +190,8 @@ export interface OptimizerResult {
   btParams: Partial<BacktestSettings>;
   /** Значения варьируемых полей SmcOptions. */
   smcParams: Partial<SmcOptions>;
+  /** Значения параметров пайплайна данных (например tickMultiplier). */
+  dataParams: { tickMultiplier?: number };
   /** Полный отчёт бэктеста. */
   report: BacktestReport;
   /** Численная метрика, по которой сортировали. */
