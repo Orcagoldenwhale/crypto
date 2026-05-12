@@ -13,7 +13,7 @@
  * SMC-параметры — в smcOptions через onApplySmc.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Rocket, X, Square } from 'lucide-react';
 import type { BacktestReport, BacktestSettings } from '@/backtest/types';
 import type { Candle1h, Candle15m, Candle5m } from '@/types';
@@ -216,17 +216,42 @@ export function OptimizerPanel({
       role="presentation"
     >
       <div
-        className="flex h-[90vh] w-[90vw] max-w-7xl flex-col rounded-lg border border-tv-border bg-tv-panel shadow-2xl"
+        className="flex h-[95vh] w-[98vw] flex-col rounded-lg border border-tv-border bg-tv-panel shadow-2xl"
         role="dialog"
         aria-modal="true"
         aria-label="Оптимизатор бэктеста"
       >
-        <header className="flex items-center justify-between border-b border-tv-border px-5 py-3">
-          <div className="flex items-center gap-2">
+        <header className="flex items-center justify-between border-b border-tv-border px-5 py-2.5">
+          <div className="flex items-center gap-3">
             <Rocket className="h-4 w-4 text-tv-accent" />
             <span className="text-sm font-semibold uppercase tracking-wider text-tv-text">
               Оптимизатор бэктеста
             </span>
+            {/* Метрика и Top-N сразу в шапке — экономия места */}
+            <label className="flex items-center gap-1.5 text-[10px] text-tv-text-muted">
+              Метрика
+              <select
+                value={optSettings.metric}
+                onChange={(e) => setOptSettings({ ...optSettings, metric: e.target.value as OptimizerMetric })}
+                className="rounded border border-tv-border bg-tv-bg-deep px-1 py-0.5 text-[10px] text-tv-text outline-none focus:border-tv-accent"
+              >
+                {(Object.keys(METRIC_LABEL) as OptimizerMetric[]).map((m) => (
+                  <option key={m} value={m}>{METRIC_LABEL[m]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-1.5 text-[10px] text-tv-text-muted">
+              Top-N
+              <input
+                type="number"
+                min={1}
+                max={500}
+                step={1}
+                value={optSettings.topN}
+                onChange={(e) => setOptSettings({ ...optSettings, topN: clampInt(+e.target.value, 1, 500, 20) })}
+                className="w-14 rounded border border-tv-border bg-tv-bg-deep px-1 py-0.5 text-right font-mono text-[10px] text-white"
+              />
+            </label>
           </div>
           <button
             type="button"
@@ -239,50 +264,25 @@ export function OptimizerPanel({
           </button>
         </header>
 
-        <div className="flex-1 overflow-hidden">
-          <div className="grid h-full grid-cols-1 md:grid-cols-[minmax(380px,1fr)_2fr]">
-            <div className="overflow-y-auto border-r border-tv-border p-4">
-              {visibleSections.map((section) => (
-                <SectionBlock
-                  key={section.title}
-                  title={section.title}
-                  specs={section.keys.map((k) => ({ key: k, spec: optSettings.specs[k] }))}
-                  onChangeSpec={(k, next) => setSpec(k, next)}
-                  onEnableAll={() => enableSection(section, true)}
-                  onDisableAll={() => enableSection(section, false)}
-                />
-              ))}
+        {/* Параметры — в горизонтальной сетке колонок (без вертикального скролла) */}
+        <div className="border-b border-tv-border p-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {visibleSections.map((section) => (
+              <SectionBlock
+                key={section.title}
+                title={section.title}
+                specs={section.keys.map((k) => ({ key: k, spec: optSettings.specs[k] }))}
+                onChangeSpec={(k, next) => setSpec(k, next)}
+                onEnableAll={() => enableSection(section, true)}
+                onDisableAll={() => enableSection(section, false)}
+              />
+            ))}
+          </div>
+        </div>
 
-              <SectionTitle className="mt-5">Метрика</SectionTitle>
-              <select
-                value={optSettings.metric}
-                onChange={(e) => setOptSettings({ ...optSettings, metric: e.target.value as OptimizerMetric })}
-                className="w-full rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-xs text-tv-text outline-none focus:border-tv-accent"
-              >
-                {(Object.keys(METRIC_LABEL) as OptimizerMetric[]).map((m) => (
-                  <option key={m} value={m}>
-                    {METRIC_LABEL[m]}
-                  </option>
-                ))}
-              </select>
-
-              <SectionTitle className="mt-5">Результаты</SectionTitle>
-              <label className="flex items-center justify-between text-[11px] text-tv-text">
-                <span>Top-N</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={500}
-                  step={1}
-                  value={optSettings.topN}
-                  onChange={(e) => setOptSettings({ ...optSettings, topN: clampInt(+e.target.value, 1, 500, 20) })}
-                  className="w-20 rounded border border-tv-border bg-tv-bg-deep px-2 py-0.5 text-right font-mono text-[11px] text-white"
-                />
-              </label>
-            </div>
-
-            <div className="flex flex-col overflow-hidden">
-              <div className="border-b border-tv-border p-4">
+        {/* Запуск + результаты */}
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="border-b border-tv-border p-3">
                 <div className="mb-2 flex items-center justify-between text-xs text-tv-text">
                   <span>
                     Всего комбинаций: <strong className="text-tv-accent">{total === Infinity ? '∞' : total}</strong>
@@ -334,23 +334,21 @@ export function OptimizerPanel({
                 )}
               </div>
 
-              <div className="flex-1 overflow-auto p-4">
-                {results.length === 0 ? (
-                  <p className="text-center text-xs text-tv-text-muted">
-                    {running ? 'Идёт прогон…' : 'Запустите оптимизацию — результаты появятся здесь.'}
-                  </p>
-                ) : (
-                  <ResultsTable
-                    results={results}
-                    metric={optSettings.metric}
-                    baseSettings={baseSettings}
-                    baseSmcOpts={baseSmcOpts}
-                    onApply={onApply}
-                    onApplySmc={onApplySmc}
-                  />
-                )}
-              </div>
-            </div>
+          <div className="flex-1 overflow-auto p-3">
+            {results.length === 0 ? (
+              <p className="text-center text-xs text-tv-text-muted">
+                {running ? 'Идёт прогон…' : 'Запустите оптимизацию — результаты появятся здесь.'}
+              </p>
+            ) : (
+              <ResultsTable
+                results={results}
+                metric={optSettings.metric}
+                baseSettings={baseSettings}
+                baseSmcOpts={baseSmcOpts}
+                onApply={onApply}
+                onApplySmc={onApplySmc}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -361,14 +359,6 @@ export function OptimizerPanel({
 // ============================================================================
 // Building blocks
 // ============================================================================
-
-function SectionTitle({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <h3 className={`mb-2 text-[10px] font-semibold uppercase tracking-wider text-tv-text-muted ${className ?? ''}`}>
-      {children}
-    </h3>
-  );
-}
 
 function SectionBlock({
   title,
@@ -385,18 +375,20 @@ function SectionBlock({
 }) {
   const allOn = specs.every((s) => s.spec.enabled);
   return (
-    <div className="mb-4">
-      <div className="mb-2 flex items-center justify-between">
-        <SectionTitle className="!mb-0">{title}</SectionTitle>
+    <div className="flex flex-col rounded border border-tv-border bg-tv-bg-deep/40 p-2">
+      <div className="mb-1.5 flex items-center justify-between border-b border-tv-border/40 pb-1">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-tv-text">
+          {title}
+        </h3>
         <button
           type="button"
           onClick={() => (allOn ? onDisableAll() : onEnableAll())}
-          className="rounded border border-tv-border px-1.5 py-0.5 text-[10px] text-tv-text-muted hover:text-tv-text"
+          className="rounded border border-tv-border px-1 py-0 text-[9px] text-tv-text-muted hover:text-tv-text"
         >
-          {allOn ? 'выключить все' : 'включить все'}
+          {allOn ? 'выкл. все' : 'вкл. все'}
         </button>
       </div>
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1">
         {specs.map(({ key, spec }) => (
           <ParamRow
             key={key}
@@ -421,33 +413,30 @@ function ParamRow({
 }) {
   const enabled = spec.enabled;
   return (
-    <div className={`rounded border border-tv-border/60 bg-tv-bg-deep/40 p-2 ${enabled ? '' : 'opacity-60'}`}>
-      <label className="flex cursor-pointer items-center gap-2">
+    <div className={`rounded border border-tv-border/40 bg-tv-bg-deep/30 px-1.5 py-1 ${enabled ? '' : 'opacity-55'}`}>
+      <label className="flex cursor-pointer items-center gap-1.5">
         <input
           type="checkbox"
           checked={enabled}
           onChange={(e) => onChange({ ...spec, enabled: e.target.checked })}
-          className="h-3.5 w-3.5 accent-tv-accent"
+          className="h-3 w-3 accent-tv-accent"
         />
-        <span className="text-[11px] font-medium text-tv-text">{label}</span>
+        <span className="flex-1 text-[10px] text-tv-text">{label}</span>
         {spec.type === 'number' && enabled && (
-          <span className="ml-auto font-mono text-[10px] text-tv-text-muted">
-            {countNumberValues(spec)} зн.
+          <span className="font-mono text-[9px] text-tv-text-muted">
+            {countNumberValues(spec)}×
           </span>
         )}
       </label>
       {enabled && spec.type === 'number' && (
-        <div className="mt-2 grid grid-cols-3 gap-1">
+        <div className="mt-1 grid grid-cols-3 gap-1">
           <NumInput label="от" value={spec.from} step={spec.step} onChange={(v) => onChange({ ...spec, from: v })} />
           <NumInput label="до" value={spec.to} step={spec.step} onChange={(v) => onChange({ ...spec, to: v })} />
           <NumInput label="шаг" value={spec.step} step={spec.step} onChange={(v) => onChange({ ...spec, step: Math.max(0.001, v) })} />
         </div>
       )}
-      {enabled && spec.type === 'bool' && (
-        <p className="mt-1 text-[10px] text-tv-text-muted">Перебираются оба значения: false, true</p>
-      )}
       {enabled && spec.type === 'enum' && (
-        <p className="mt-1 text-[10px] text-tv-text-muted">Значения: {spec.values.join(', ')}</p>
+        <p className="mt-0.5 text-[9px] text-tv-text-muted">{spec.values.join(', ')}</p>
       )}
     </div>
   );
@@ -460,8 +449,8 @@ function countNumberValues(spec: { from: number; to: number; step: number }): nu
 
 function NumInput({ label, value, step, onChange }: { label: string; value: number; step: number; onChange: (v: number) => void }) {
   return (
-    <label className="flex flex-col gap-0.5">
-      <span className="text-[10px] text-tv-text-muted">{label}</span>
+    <label className="flex items-center gap-1">
+      <span className="text-[9px] text-tv-text-muted">{label}</span>
       <input
         type="number"
         value={value}
@@ -470,7 +459,7 @@ function NumInput({ label, value, step, onChange }: { label: string; value: numb
           const v = parseFloat(e.target.value);
           if (Number.isFinite(v)) onChange(v);
         }}
-        className="w-full rounded border border-tv-border bg-tv-bg-deep px-1 py-0.5 text-right font-mono text-[11px] text-white outline-none focus:border-tv-accent"
+        className="w-full min-w-0 rounded border border-tv-border bg-tv-bg-deep px-1 py-0 text-right font-mono text-[10px] text-white outline-none focus:border-tv-accent"
       />
     </label>
   );
