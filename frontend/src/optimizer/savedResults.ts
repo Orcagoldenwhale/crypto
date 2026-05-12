@@ -8,7 +8,7 @@
 
 import type { BacktestReport, BacktestSettings } from '@/backtest/types';
 import type { SmcOptions } from '@/engine/smc/types';
-import type { OptimizerMetric, OptimizerResult } from './types';
+import type { OptimizerMetric, OptimizerResult, OptimizerSettings } from './types';
 
 export interface SavedResultSummary {
   totalTrades: number;
@@ -57,6 +57,30 @@ export function persistSaved(items: readonly SavedResult[]): void {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
   } catch {
     // Quota / SSR — игнорируем.
+  }
+}
+
+// ============================================================================
+// Дефолтная конфигурация оптимизатора — сохраняется отдельно от results.
+// ============================================================================
+
+const DEFAULTS_KEY = 'smc-optimizer-defaults-v1';
+
+export function loadOptimizerDefaults(): OptimizerSettings | null {
+  try {
+    const raw = window.localStorage.getItem(DEFAULTS_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as OptimizerSettings;
+  } catch {
+    return null;
+  }
+}
+
+export function persistOptimizerDefaults(settings: OptimizerSettings): void {
+  try {
+    window.localStorage.setItem(DEFAULTS_KEY, JSON.stringify(settings));
+  } catch {
+    // Quota / SSR.
   }
 }
 

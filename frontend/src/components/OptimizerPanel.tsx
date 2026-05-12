@@ -14,12 +14,14 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Play, Rocket, X, Square, Star, Trash2 } from 'lucide-react';
+import { Play, Rocket, X, Square, Star, Trash2, Save, RotateCcw } from 'lucide-react';
 import type { BacktestSettings } from '@/backtest/types';
 import type { SmcLayers, SmcOptions } from '@/engine/smc/types';
 import type { PreparedData } from '@/optimizer/runOptimizer';
 import {
+  loadOptimizerDefaults,
   loadSaved,
+  persistOptimizerDefaults,
   persistSaved,
   snapshotResult,
   type SavedResult,
@@ -151,7 +153,21 @@ export function OptimizerPanel({
   onApplySmc,
   onApplyMultiplier,
 }: OptimizerPanelProps) {
-  const [optSettings, setOptSettings] = useState<OptimizerSettings>(DEFAULT_OPTIMIZER_SETTINGS);
+  const [optSettings, setOptSettings] = useState<OptimizerSettings>(
+    () => loadOptimizerDefaults() ?? DEFAULT_OPTIMIZER_SETTINGS,
+  );
+
+  const handleSaveDefaults = () => {
+    persistOptimizerDefaults(optSettings);
+  };
+
+  const handleResetDefaults = () => {
+    const ok = window.confirm(
+      'Сбросить настройки до текущих дефолтных?\nВсе несохранённые изменения будут потеряны.',
+    );
+    if (!ok) return;
+    setOptSettings(loadOptimizerDefaults() ?? DEFAULT_OPTIMIZER_SETTINGS);
+  };
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; best: number | null }>({
     done: 0,
@@ -329,15 +345,39 @@ export function OptimizerPanel({
               </>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={running}
-            className="text-tv-text-muted hover:text-tv-text disabled:opacity-40"
-            aria-label="Закрыть"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {view === 'optimizer' && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleSaveDefaults}
+                  title="Сохранить текущую конфигурацию как дефолтную (для следующих открытий)"
+                  className="flex items-center gap-1 rounded border border-tv-border px-2 py-0.5 text-[10px] text-tv-text-muted hover:bg-tv-panel-hover hover:text-tv-text"
+                >
+                  <Save className="h-3 w-3" />
+                  Сохранить как дефолт
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetDefaults}
+                  title="Сбросить к сохранённому дефолту (с подтверждением)"
+                  className="flex items-center gap-1 rounded border border-tv-border px-2 py-0.5 text-[10px] text-tv-text-muted hover:bg-tv-panel-hover hover:text-tv-text"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Сброс
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={running}
+              className="text-tv-text-muted hover:text-tv-text disabled:opacity-40"
+              aria-label="Закрыть"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
         </header>
 
         {view === 'saved' ? (
