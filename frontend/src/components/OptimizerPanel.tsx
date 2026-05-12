@@ -14,10 +14,16 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Play, Rocket, X, Square } from 'lucide-react';
+import { Play, Rocket, X, Square, Star, Trash2 } from 'lucide-react';
 import type { BacktestSettings } from '@/backtest/types';
 import type { SmcLayers, SmcOptions } from '@/engine/smc/types';
 import type { PreparedData } from '@/optimizer/runOptimizer';
+import {
+  loadSaved,
+  persistSaved,
+  snapshotResult,
+  type SavedResult,
+} from '@/optimizer/savedResults';
 import {
   DEFAULT_OPTIMIZER_SETTINGS,
   METRIC_LABEL,
@@ -149,6 +155,32 @@ export function OptimizerPanel({
   const [results, setResults] = useState<OptimizerResult[]>([]);
   const abortRef = useRef<AbortController | null>(null);
 
+  // ===== Сохранённые результаты (localStorage) =====
+  const [savedResults, setSavedResults] = useState<SavedResult[]>(() => loadSaved());
+  const [view, setView] = useState<'optimizer' | 'saved'>('optimizer');
+
+  const saveResult = (r: OptimizerResult) => {
+    const snap = snapshotResult(r, optSettings.metric);
+    setSavedResults((prev) => {
+      const next = [snap, ...prev];
+      persistSaved(next);
+      return next;
+    });
+  };
+
+  const deleteSaved = (id: string) => {
+    setSavedResults((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      persistSaved(next);
+      return next;
+    });
+  };
+
+  const applySaved = (s: SavedResult) => {
+    onApplySmc({ ...baseSmcOpts, ...s.smcParams });
+    onApply({ ...baseSettings, ...s.btParams });
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -231,33 +263,62 @@ export function OptimizerPanel({
           <div className="flex items-center gap-3">
             <Rocket className="h-4 w-4 text-tv-accent" />
             <span className="text-sm font-semibold uppercase tracking-wider text-tv-text">
-              Оптимизатор бэктеста
+              Оптимизатор
             </span>
-            {/* Метрика и Top-N сразу в шапке — экономия места */}
-            <label className="flex items-center gap-1.5 text-[10px] text-tv-text-muted">
-              Метрика
-              <select
-                value={optSettings.metric}
-                onChange={(e) => setOptSettings({ ...optSettings, metric: e.target.value as OptimizerMetric })}
-                className="rounded border border-tv-border bg-tv-bg-deep px-1 py-0.5 text-[10px] text-tv-text outline-none focus:border-tv-accent"
+            {/* Переключатель вкладок */}
+            <div className="ml-1 flex rounded border border-tv-border bg-tv-bg-deep p-0.5">
+              <button
+                type="button"
+                onClick={() => setView('optimizer')}
+                className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                  view === 'optimizer'
+                    ? 'bg-tv-accent text-white'
+                    : 'text-tv-text-muted hover:text-tv-text'
+                }`}
               >
-                {(Object.keys(METRIC_LABEL) as OptimizerMetric[]).map((m) => (
-                  <option key={m} value={m}>{METRIC_LABEL[m]}</option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-1.5 text-[10px] text-tv-text-muted">
-              Top-N
-              <input
-                type="number"
-                min={1}
-                max={500}
-                step={1}
-                value={optSettings.topN}
-                onChange={(e) => setOptSettings({ ...optSettings, topN: clampInt(+e.target.value, 1, 500, 20) })}
-                className="w-14 rounded border border-tv-border bg-tv-bg-deep px-1 py-0.5 text-right font-mono text-[10px] text-white"
-              />
-            </label>
+                Параметры
+              </button>
+              <button
+                type="button"
+                onClick={() => setView('saved')}
+                className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                  view === 'saved'
+                    ? 'bg-tv-accent text-white'
+                    : 'text-tv-text-muted hover:text-tv-text'
+                }`}
+              >
+                Сохранённые ({savedResults.length})
+              </button>
+            </div>
+            {/* Метрика и Top-N — только во вкладке оптимизатора */}
+            {view === 'optimizer' && (
+              <>
+                <label className="flex items-center gap-1.5 text-[10px] text-tv-text-muted">
+                  Метрика
+                  <select
+                    value={optSettings.metric}
+                    onChange={(e) => setOptSettings({ ...optSettings, metric: e.target.value as OptimizerMetric })}
+                    className="rounded border border-tv-border bg-tv-bg-deep px-1 py-0.5 text-[10px] text-tv-text outline-none focus:border-tv-accent"
+                  >
+                    {(Object.keys(METRIC_LABEL) as OptimizerMetric[]).map((m) => (
+                      <option key={m} value={m}>{METRIC_LABEL[m]}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex items-center gap-1.5 text-[10px] text-tv-text-muted">
+                  Top-N
+                  <input
+                    type="number"
+                    min={1}
+                    max={500}
+                    step={1}
+                    value={optSettings.topN}
+                    onChange={(e) => setOptSettings({ ...optSettings, topN: clampInt(+e.target.value, 1, 500, 20) })}
+                    className="w-14 rounded border border-tv-border bg-tv-bg-deep px-1 py-0.5 text-right font-mono text-[10px] text-white"
+                  />
+                </label>
+              </>
+            )}
           </div>
           <button
             type="button"
@@ -270,6 +331,14 @@ export function OptimizerPanel({
           </button>
         </header>
 
+        {view === 'saved' ? (
+          <SavedView
+            items={savedResults}
+            onApply={applySaved}
+            onDelete={deleteSaved}
+          />
+        ) : (
+          <>
         {/* Параметры — в горизонтальной сетке колонок (без вертикального скролла) */}
         <div className="border-b border-tv-border p-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
@@ -353,10 +422,13 @@ export function OptimizerPanel({
                 baseSmcOpts={baseSmcOpts}
                 onApply={onApply}
                 onApplySmc={onApplySmc}
+                onSave={saveResult}
               />
             )}
           </div>
         </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -478,6 +550,7 @@ function ResultsTable({
   baseSmcOpts,
   onApply,
   onApplySmc,
+  onSave,
 }: {
   results: readonly OptimizerResult[];
   metric: OptimizerMetric;
@@ -485,6 +558,7 @@ function ResultsTable({
   baseSmcOpts: SmcOptions;
   onApply: (next: BacktestSettings) => void;
   onApplySmc: (next: SmcOptions) => void;
+  onSave: (r: OptimizerResult) => void;
 }) {
   return (
     <table className="w-full text-[11px]">
@@ -510,6 +584,7 @@ function ResultsTable({
             baseSmcOpts={baseSmcOpts}
             onApply={onApply}
             onApplySmc={onApplySmc}
+            onSave={onSave}
           />
         ))}
       </tbody>
@@ -524,6 +599,7 @@ function ResultRow({
   baseSmcOpts,
   onApply,
   onApplySmc,
+  onSave,
 }: {
   idx: number;
   result: OptimizerResult;
@@ -531,6 +607,7 @@ function ResultRow({
   baseSmcOpts: SmcOptions;
   onApply: (next: BacktestSettings) => void;
   onApplySmc: (next: SmcOptions) => void;
+  onSave: (r: OptimizerResult) => void;
 }) {
   const { report, btParams, smcParams, dataParams, score } = result;
   const handleApply = () => {
@@ -558,13 +635,23 @@ function ResultRow({
         {formatParams(btParams, smcParams, dataParams)}
       </td>
       <td className="px-2 py-1">
-        <button
-          type="button"
-          onClick={handleApply}
-          className="rounded border border-tv-border px-2 py-0.5 text-[10px] text-tv-accent hover:bg-tv-accent hover:text-white"
-        >
-          Применить
-        </button>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={() => onSave(result)}
+            title="Сохранить в коллекцию"
+            className="rounded border border-tv-border px-1.5 py-0.5 text-[10px] text-tv-text-muted hover:bg-tv-panel-hover hover:text-amber-400"
+          >
+            <Star className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={handleApply}
+            className="rounded border border-tv-border px-2 py-0.5 text-[10px] text-tv-accent hover:bg-tv-accent hover:text-white"
+          >
+            Применить
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -597,3 +684,95 @@ function clampInt(v: number, lo: number, hi: number, fallback: number): number {
 
 // Silence unused-warnings for narrowed types BacktestKey / SmcKey (re-exported for callers).
 export type { BacktestKey, SmcKey };
+
+// ============================================================================
+// Сохранённые результаты (вкладка)
+// ============================================================================
+
+function SavedView({
+  items,
+  onApply,
+  onDelete,
+}: {
+  items: readonly SavedResult[];
+  onApply: (s: SavedResult) => void;
+  onDelete: (id: string) => void;
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <p className="text-center text-xs text-tv-text-muted">
+          Здесь будут отображаться сохранённые наборы параметров. Нажмите
+          ★ на любой строке результатов оптимизации, чтобы добавить.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="flex-1 overflow-auto p-3">
+      <table className="w-full text-[11px]">
+        <thead className="sticky top-0 bg-tv-panel text-tv-text-muted">
+          <tr>
+            <th className="px-2 py-1 text-left">Дата</th>
+            <th className="px-2 py-1 text-left">Метрика</th>
+            <th className="px-2 py-1 text-right">Score</th>
+            <th className="px-2 py-1 text-right">Сделок</th>
+            <th className="px-2 py-1 text-right">W/L</th>
+            <th className="px-2 py-1 text-right">Winrate</th>
+            <th className="px-2 py-1 text-right">P&L (R)</th>
+            <th className="px-2 py-1 text-left">Параметры</th>
+            <th className="px-2 py-1" />
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((s) => (
+            <tr key={s.id} className="border-t border-tv-border/40 hover:bg-tv-panel-hover">
+              <td className="px-2 py-1 text-tv-text-muted">{formatDate(s.savedAt)}</td>
+              <td className="px-2 py-1 text-tv-text-muted">{METRIC_LABEL[s.metric]}</td>
+              <td className="px-2 py-1 text-right font-mono text-tv-accent">{formatScore(s.score)}</td>
+              <td className="px-2 py-1 text-right font-mono">{s.summary.totalTrades}</td>
+              <td className="px-2 py-1 text-right font-mono">
+                <span className="text-tv-up">{s.summary.wins}</span>/
+                <span className="text-tv-down">{s.summary.losses}</span>
+              </td>
+              <td className={`px-2 py-1 text-right font-mono ${s.summary.winRate >= 0.5 ? 'text-tv-up' : 'text-tv-down'}`}>
+                {(s.summary.winRate * 100).toFixed(1)}%
+              </td>
+              <td className={`px-2 py-1 text-right font-mono ${s.summary.totalPnlR >= 0 ? 'text-tv-up' : 'text-tv-down'}`}>
+                {s.summary.totalPnlR >= 0 ? '+' : ''}{s.summary.totalPnlR.toFixed(1)}
+              </td>
+              <td className="px-2 py-1 font-mono text-tv-text-muted text-[10px]">
+                {formatParams(s.btParams, s.smcParams, s.dataParams)}
+              </td>
+              <td className="px-2 py-1">
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => onApply(s)}
+                    className="rounded border border-tv-border px-2 py-0.5 text-[10px] text-tv-accent hover:bg-tv-accent hover:text-white"
+                  >
+                    Применить
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onDelete(s.id)}
+                    title="Удалить"
+                    className="rounded border border-tv-border px-1.5 py-0.5 text-[10px] text-tv-text-muted hover:bg-red-500 hover:text-white"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function formatDate(ts: number): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
