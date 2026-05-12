@@ -39,8 +39,6 @@ export interface PauseSnapshot {
   processed: number;
   /** Накопленный топ-N. */
   top: OptimizerResult[];
-  /** Что осталось — для возобновления. */
-  remaining: Combo[];
 }
 
 export interface RunOptimizerArgs {
@@ -115,7 +113,9 @@ export async function runOptimizer({
   for (let i = startIndex; i < ordered.length; i++) {
     if (signal?.aborted) break;
     if (pauseSignal?.aborted) {
-      onPause?.({ processed: i, top, remaining: ordered.slice(i) });
+      // Не сохраняем `remaining` — resume идёт через specs+startIndex
+      // (детерминированная регенерация грида).
+      onPause?.({ processed: i, top });
       return top;
     }
 

@@ -94,7 +94,7 @@ describe('runOptimizer', () => {
     const ac = new AbortController();
     // Поставим паузу сразу же — должно отработать минимум одну итерацию.
     ac.abort();
-    let snapshot: { processed: number; top: unknown[]; remaining: unknown[] } | null = null;
+    let snapshot: { processed: number; top: unknown[] } | null = null;
     await runOptimizer({
       prepareData: dummyPrepareData,
       baseSmcOpts,
@@ -106,9 +106,10 @@ describe('runOptimizer', () => {
       onPause: (s) => { snapshot = s; },
     });
     expect(snapshot).not.toBeNull();
-    const ss = snapshot as unknown as { processed: number; top: unknown[]; remaining: unknown[] };
+    const ss = snapshot as unknown as { processed: number; top: unknown[] };
+    // pauseSignal сработал ещё до старта итерации.
     expect(ss.processed).toBe(0);
-    expect(ss.remaining.length).toBe(combos.length);
+    expect(Array.isArray(ss.top)).toBe(true);
   });
 
   it('initialTop сохраняется при resume', async () => {

@@ -24,7 +24,12 @@ export interface RunHistoryEntry {
   doneIndex: number;
   /** Топ-N собранный к моменту записи. trades в report обнулены. */
   results: OptimizerResult[];
-  /** Хвост невыполненных комбинаций. Заполняется только для status='paused'. */
+  /**
+   * @deprecated Legacy-поле для записей, созданных до v1.36.0.
+   * Новые paused-записи НЕ пишут это поле (сериализация миллионов
+   * комбо превышала localStorage quota). Resume теперь регенерирует
+   * грид из `optSettings.specs` + `doneIndex` — детерминированно.
+   */
   remainingCombos?: Combo[];
   /** Пользовательская подпись (опц.). */
   label?: string;

@@ -198,15 +198,17 @@ export function OptimizerPanel({
 
   /**
    * Снимок паузы текущей сессии. Если не null — основная кнопка "Запустить"
-   * превращается в "Продолжить" и подхватывает оставшиеся комбинации.
-   * Сбрасывается при завершении нового прогона или клике "↻ заново".
+   * превращается в "Продолжить" и регенерирует тот же грид по специфам.
+   *
+   * Хранит specs (а не massive remaining[]), чтобы не плодить мусор в RAM.
+   * Resume: generateGrid(specs) + runOptimizer(startIndex=processed).
    */
   const [pausedSnapshot, setPausedSnapshot] = useState<{
     processed: number;
     top: OptimizerResult[];
-    remaining: Combo[];
     historyId: string;
     total: number;
+    optSettings: OptimizerSettings;
   } | null>(null);
 
   const saveResult = (r: OptimizerResult) => {
@@ -264,14 +266,22 @@ export function OptimizerPanel({
 
   /**
    * Запуск (новый или resume).
-   * Для resume передаётся опциональный аргумент:
-   *   - startCombos: оставшиеся комбинации (resume.remainingCombos)
-   *   - initialTop: уже накопленный топ (resume.results)
-   *   - resumeId: id записи истории, которую сменим со status='paused'
+   *
+   * resume может прийти двумя путями:
+   * 1) Новая схема (paused-снимок в сессии или новые записи истории) —
+   *    `specs` + `startIndex` + `initialTop`. Грид регенерируется по
+   *    specs, бэктесты идут начиная с startIndex.
+   * 2) Legacy-схема (старые paused-записи с remainingCombos) —
+   *    `legacyCombos` + `initialTop`. Здесь грид НЕ регенерируется,
+   *    а используется готовый массив remainingCombos.
    */
   const handleRun = async (resume?: {
-    startCombos: Combo[];
+    specs?: OptimizerSettings['specs'];
+    startIndex?: number;
+    legacyCombos?: Combo[];
     initialTop: OptimizerResult[];
+    /** optSettings, которое надо использовать для прогона (захвачено на момент паузы). */
+    capturedOptSettings?: OptimizerSettings;
     resumeId?: string;
   }) => {
     if (running) return;
@@ -280,8 +290,10 @@ export function OptimizerPanel({
     // "Запустить" работает как "Продолжить".
     if (!resume && pausedSnapshot) {
       resume = {
-        startCombos: pausedSnapshot.remaining,
+        specs: pausedSnapshot.optSettings.specs,
+        startIndex: pausedSnapshot.processed,
         initialTop: pausedSnapshot.top,
+        capturedOptSettings: pausedSnapshot.optSettings,
         resumeId: pausedSnapshot.historyId,
       };
     }
@@ -292,7 +304,14 @@ export function OptimizerPanel({
       return;
     }
 
-    const combos = resume?.startCombos ?? generateGrid(optSettings.specs);
+    // Используем optSettings из снимка если resume, иначе текущие.
+    const effectiveOptSettings = resume?.capturedOptSettings ?? optSettings;
+    const combos = resume?.legacyCombos
+      ? resume.legacyCombos
+      : generateGrid(resume?.specs ?? effectiveOptSettings.specs);
+    const startIndex = resume?.legacyCombos
+      ? 0
+      : (resume?.startIndex ?? 0);
     const initialTop = resume?.initialTop ?? [];
     if (!resume) {
       setResults([]);
@@ -301,14 +320,15 @@ export function OptimizerPanel({
       // Переключаемся на вкладку Параметры чтобы прогресс был виден.
       setView('optimizer');
     }
-    setProgress({ done: 0, total: combos.length, best: null });
+    // Прогресс показывает позицию в общем гриде (включая уже пройденные при resume).
+    setProgress({ done: startIndex, total: combos.length, best: null });
     setRunning(true);
     const ac = new AbortController();
     abortRef.current = ac;
     pauseRef.current = new AbortController();
     runStartRef.current = { startedAt: Date.now(), total: combos.length };
 
-    let paused: { processed: number; top: OptimizerResult[]; remaining: Combo[] } | null = null;
+    let paused: { processed: number; top: OptimizerResult[] } | null = null;
     try {
       const found = await runOptimizer({
         prepareData,
@@ -316,7 +336,8 @@ export function OptimizerPanel({
         smcLayers,
         baseSettings,
         combos,
-        optSettings,
+        optSettings: effectiveOptSettings,
+        startIndex,
         initialTop,
         signal: ac.signal,
         pauseSignal: pauseRef.current.signal,
@@ -328,18 +349,20 @@ export function OptimizerPanel({
       // Запись в историю по итогам прогона.
       const meta = runStartRef.current!;
       if (paused) {
-        const snap = paused as { processed: number; top: OptimizerResult[]; remaining: Combo[] };
+        const snap = paused as { processed: number; top: OptimizerResult[] };
         const newHistoryId = makeId();
+        // Не сохраняем remainingCombos — для resume хватит specs+doneIndex.
+        // Это критично для больших гридов: сериализация миллионов комбо
+        // превышает localStorage quota.
         addHistoryAndSet({
           id: newHistoryId,
           startedAt: meta.startedAt,
           finishedAt: null,
           status: 'paused',
-          optSettings,
+          optSettings: effectiveOptSettings,
           totalCombos: meta.total,
           doneIndex: snap.processed,
           results: snap.top.map(slimResult),
-          remainingCombos: snap.remaining,
         });
         // Если возобновляли — старую paused-запись удаляем (заменяем новой).
         if (resume?.resumeId) {
@@ -349,9 +372,9 @@ export function OptimizerPanel({
         setPausedSnapshot({
           processed: snap.processed,
           top: snap.top,
-          remaining: snap.remaining,
           historyId: newHistoryId,
           total: meta.total,
+          optSettings: effectiveOptSettings,
         });
       } else if (ac.signal.aborted) {
         // cancelled — сохраняем только если что-то накопили.
@@ -361,7 +384,7 @@ export function OptimizerPanel({
             startedAt: meta.startedAt,
             finishedAt: Date.now(),
             status: 'cancelled',
-            optSettings,
+            optSettings: effectiveOptSettings,
             totalCombos: meta.total,
             doneIndex: progress.done,
             results: found.map(slimResult),
@@ -376,7 +399,7 @@ export function OptimizerPanel({
           startedAt: meta.startedAt,
           finishedAt: Date.now(),
           status: 'completed',
-          optSettings,
+          optSettings: effectiveOptSettings,
           totalCombos: meta.total,
           doneIndex: meta.total,
           results: found.map(slimResult),
@@ -411,16 +434,29 @@ export function OptimizerPanel({
     setView('optimizer');
   };
 
-  /** Загружает + сразу возобновляет прогон с оставшихся комбинаций. */
+  /** Загружает + сразу возобновляет прогон. */
   const resumeHistoryEntry = (e: RunHistoryEntry) => {
-    if (!e.remainingCombos || e.remainingCombos.length === 0) {
-      window.alert('Нет данных для возобновления (запись не на паузе).');
+    if (e.status !== 'paused') {
+      window.alert('Запись не на паузе — возобновить нельзя.');
       return;
     }
     setOptSettings(e.optSettings);
+    // Legacy: записи до v1.36 хранили полный массив remainingCombos.
+    if (e.remainingCombos && e.remainingCombos.length > 0) {
+      handleRun({
+        legacyCombos: e.remainingCombos,
+        initialTop: e.results,
+        capturedOptSettings: e.optSettings,
+        resumeId: e.id,
+      });
+      return;
+    }
+    // Новая схема: регенерируем грид из specs + skip до doneIndex.
     handleRun({
-      startCombos: e.remainingCombos,
+      specs: e.optSettings.specs,
+      startIndex: e.doneIndex,
       initialTop: e.results,
+      capturedOptSettings: e.optSettings,
       resumeId: e.id,
     });
   };
