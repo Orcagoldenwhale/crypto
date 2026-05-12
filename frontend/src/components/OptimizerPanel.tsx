@@ -196,6 +196,19 @@ export function OptimizerPanel({
   const pauseRef = useRef<AbortController | null>(null);
   const runStartRef = useRef<{ startedAt: number; total: number } | null>(null);
 
+  /**
+   * Снимок паузы текущей сессии. Если не null — основная кнопка "Запустить"
+   * превращается в "Продолжить" и подхватывает оставшиеся комбинации.
+   * Сбрасывается при завершении нового прогона или клике "↻ заново".
+   */
+  const [pausedSnapshot, setPausedSnapshot] = useState<{
+    processed: number;
+    top: OptimizerResult[];
+    remaining: Combo[];
+    historyId: string;
+    total: number;
+  } | null>(null);
+
   const saveResult = (r: OptimizerResult) => {
     const snap = snapshotResult(r, optSettings.metric);
     setSavedResults((prev) => {
@@ -262,6 +275,16 @@ export function OptimizerPanel({
     resumeId?: string;
   }) => {
     if (running) return;
+    // Если есть снимок паузы в текущей сессии и явный resume не передан —
+    // автоматически продолжаем с него. Это значит: после "Пауза" кнопка
+    // "Запустить" работает как "Продолжить".
+    if (!resume && pausedSnapshot) {
+      resume = {
+        startCombos: pausedSnapshot.remaining,
+        initialTop: pausedSnapshot.top,
+        resumeId: pausedSnapshot.historyId,
+      };
+    }
     if (!resume && total === 0) return;
     const probe = prepareData(undefined);
     if (probe.candles.length === 0) {
@@ -306,8 +329,9 @@ export function OptimizerPanel({
       const meta = runStartRef.current!;
       if (paused) {
         const snap = paused as { processed: number; top: OptimizerResult[]; remaining: Combo[] };
+        const newHistoryId = makeId();
         addHistoryAndSet({
-          id: makeId(),
+          id: newHistoryId,
           startedAt: meta.startedAt,
           finishedAt: null,
           status: 'paused',
@@ -321,6 +345,14 @@ export function OptimizerPanel({
         if (resume?.resumeId) {
           setHistory((prev) => removeHistoryEntry(prev, resume.resumeId!));
         }
+        // Запоминаем снимок паузы в сессии — основная кнопка станет "Продолжить".
+        setPausedSnapshot({
+          processed: snap.processed,
+          top: snap.top,
+          remaining: snap.remaining,
+          historyId: newHistoryId,
+          total: meta.total,
+        });
       } else if (ac.signal.aborted) {
         // cancelled — сохраняем только если что-то накопили.
         if (found.length > 0) {
@@ -335,6 +367,8 @@ export function OptimizerPanel({
             results: found.map(slimResult),
           });
         }
+        // Прерванный прогон сбрасывает paused-снимок.
+        setPausedSnapshot(null);
       } else {
         // completed
         addHistoryAndSet({
@@ -350,6 +384,7 @@ export function OptimizerPanel({
         if (resume?.resumeId) {
           setHistory((prev) => removeHistoryEntry(prev, resume.resumeId!));
         }
+        setPausedSnapshot(null);
       }
     } finally {
       setRunning(false);
@@ -564,15 +599,41 @@ export function OptimizerPanel({
                   )}
                 </div>
                 {!running ? (
-                  <button
-                    type="button"
-                    onClick={() => handleRun()}
-                    disabled={total === 0}
-                    className="flex w-full items-center justify-center gap-1.5 rounded bg-tv-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-tv-accent-hover disabled:opacity-40"
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                    Запустить оптимизацию
-                  </button>
+                  pausedSnapshot ? (
+                    <div className="flex w-full gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleRun()}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded bg-tv-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-tv-accent-hover"
+                      >
+                        <Play className="h-3.5 w-3.5" />
+                        Продолжить ({pausedSnapshot.processed} / {pausedSnapshot.total})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm('Сбросить паузу и начать оптимизацию заново?')) {
+                            setPausedSnapshot(null);
+                          }
+                        }}
+                        title="Сбросить паузу и запустить новый прогон с нуля"
+                        className="flex shrink-0 items-center justify-center gap-1 rounded border border-tv-border px-2 py-1.5 text-xs text-tv-text-muted hover:bg-tv-panel-hover hover:text-tv-text"
+                      >
+                        <RotateCcw className="h-3 w-3" />
+                        Заново
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleRun()}
+                      disabled={total === 0}
+                      className="flex w-full items-center justify-center gap-1.5 rounded bg-tv-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-tv-accent-hover disabled:opacity-40"
+                    >
+                      <Play className="h-3.5 w-3.5" />
+                      Запустить оптимизацию
+                    </button>
+                  )
                 ) : (
                   <div className="flex flex-col gap-1.5">
                     <div className="flex items-center justify-between text-[11px] text-tv-text">
