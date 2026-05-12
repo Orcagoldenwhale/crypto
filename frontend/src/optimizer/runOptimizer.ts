@@ -80,14 +80,29 @@ export async function runOptimizer({
   const top: OptimizerResult[] = initialTop ? [...initialTop] : [];
   let bestScore: number | null = top.length > 0 ? top[0]!.score : null;
 
-  // 1. Сортируем комбинации в стабильном порядке (data, smc).
-  // Это нужно, чтобы кэш currentMult/currentSmcKey хорошо работал
-  // (соседние комбинации делят один overlay).
-  const ordered = [...combos].sort((a, b) => {
-    const ka = dataGroupKey(a.data) + '|' + smcGroupKey(a.smc);
-    const kb = dataGroupKey(b.data) + '|' + smcGroupKey(b.smc);
-    return ka < kb ? -1 : ka > kb ? 1 : 0;
-  });
+  // 1. Группируем комбинации в плоский упорядоченный массив (data → smc → items).
+  // Используем Map с вычислением ключа РОВНО ОДИН РАЗ на комбо — O(N).
+  // Прежняя реализация через `sort` с компаратором, который пересчитывал
+  // groupKey на каждое сравнение, была O(N log N) × O(N) = O(N² log N) по
+  // числу string-конкатенаций и фризила браузер на больших гридах (>1M).
+  const ordered: Combo[] = (() => {
+    const groups = new Map<string, Combo[]>();
+    for (const c of combos) {
+      const key = dataGroupKey(c.data) + '|' + smcGroupKey(c.smc);
+      let bucket = groups.get(key);
+      if (!bucket) {
+        bucket = [];
+        groups.set(key, bucket);
+      }
+      bucket.push(c);
+    }
+    const out: Combo[] = new Array(combos.length);
+    let i = 0;
+    for (const bucket of groups.values()) {
+      for (const c of bucket) out[i++] = c;
+    }
+    return out;
+  })();
 
   // 2. Кэш текущего пайплайна.
   let currentMultKey: string | null = null;
