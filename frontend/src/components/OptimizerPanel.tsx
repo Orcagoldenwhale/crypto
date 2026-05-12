@@ -79,14 +79,13 @@ export function OptimizerPanel({
   }, [running, onClose]);
 
   const total = useMemo(() => countCombinations(optSettings.specs), [optSettings.specs]);
-  const tooMany = total > optSettings.maxCombinations;
 
   const setSpec = (key: OptimizableKey, next: ParamSpec) => {
     setOptSettings((prev) => ({ ...prev, specs: { ...prev.specs, [key]: next } }));
   };
 
   const handleRun = async () => {
-    if (tooMany || total === 0 || running) return;
+    if (total === 0 || running) return;
     if (candles.length === 0) {
       window.alert('Нет данных для оптимизации — сначала загрузите свечи.');
       return;
@@ -181,33 +180,19 @@ export function OptimizerPanel({
                 ))}
               </select>
 
-              <SectionTitle className="mt-5">Лимиты</SectionTitle>
-              <div className="flex flex-col gap-2">
-                <label className="flex items-center justify-between text-[11px] text-tv-text">
-                  <span>Top-N</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    step={1}
-                    value={optSettings.topN}
-                    onChange={(e) => setOptSettings({ ...optSettings, topN: clampInt(+e.target.value, 1, 100, 20) })}
-                    className="w-20 rounded border border-tv-border bg-tv-bg-deep px-2 py-0.5 text-right font-mono text-[11px] text-white"
-                  />
-                </label>
-                <label className="flex items-center justify-between text-[11px] text-tv-text">
-                  <span>Макс. комбинаций</span>
-                  <input
-                    type="number"
-                    min={10}
-                    max={100000}
-                    step={100}
-                    value={optSettings.maxCombinations}
-                    onChange={(e) => setOptSettings({ ...optSettings, maxCombinations: clampInt(+e.target.value, 10, 100000, 5000) })}
-                    className="w-24 rounded border border-tv-border bg-tv-bg-deep px-2 py-0.5 text-right font-mono text-[11px] text-white"
-                  />
-                </label>
-              </div>
+              <SectionTitle className="mt-5">Результаты</SectionTitle>
+              <label className="flex items-center justify-between text-[11px] text-tv-text">
+                <span>Top-N</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={500}
+                  step={1}
+                  value={optSettings.topN}
+                  onChange={(e) => setOptSettings({ ...optSettings, topN: clampInt(+e.target.value, 1, 500, 20) })}
+                  className="w-20 rounded border border-tv-border bg-tv-bg-deep px-2 py-0.5 text-right font-mono text-[11px] text-white"
+                />
+              </label>
             </div>
 
             {/* Правая колонка: запуск и результаты */}
@@ -215,11 +200,11 @@ export function OptimizerPanel({
               <div className="border-b border-tv-border p-4">
                 <div className="mb-2 flex items-center justify-between text-xs text-tv-text">
                   <span>
-                    Всего комбинаций: <strong className={tooMany ? 'text-red-400' : 'text-tv-accent'}>{total === Infinity ? '∞' : total}</strong>
+                    Всего комбинаций: <strong className="text-tv-accent">{total === Infinity ? '∞' : total}</strong>
                   </span>
-                  {tooMany && (
-                    <span className="text-[10px] text-red-400">
-                      Превышен лимит ({optSettings.maxCombinations}). Уменьшите диапазоны.
+                  {total > 10000 && (
+                    <span className="text-[10px] text-amber-400">
+                      Большой объём — может занять время. Можно прервать.
                     </span>
                   )}
                 </div>
@@ -227,7 +212,7 @@ export function OptimizerPanel({
                   <button
                     type="button"
                     onClick={handleRun}
-                    disabled={tooMany || total === 0}
+                    disabled={total === 0}
                     className="flex w-full items-center justify-center gap-1.5 rounded bg-tv-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-tv-accent-hover disabled:opacity-40"
                   >
                     <Play className="h-3.5 w-3.5" />

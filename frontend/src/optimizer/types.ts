@@ -88,14 +88,11 @@ export interface OptimizerSettings {
   metric: OptimizerMetric;
   /** Сколько лучших результатов показать (по умолчанию 20). */
   topN: number;
-  /** Лимит на общее число комбинаций — защита от случайного миллиона. */
-  maxCombinations: number;
 }
 
 export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
   metric: 'composite',
   topN: 20,
-  maxCombinations: 5000,
   specs: {
     stopPct: { type: 'number', enabled: true, from: 0.1, to: 0.5, step: 0.05 },
     rewardRatio: { type: 'number', enabled: true, from: 1, to: 3, step: 0.5 },
