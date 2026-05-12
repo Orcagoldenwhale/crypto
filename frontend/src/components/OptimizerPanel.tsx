@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Play, Rocket, X, Square, Star, Trash2, Save, RotateCcw } from 'lucide-react';
+import { Play, Pause, Rocket, X, Square, Star, Trash2, Save, RotateCcw, FolderOpen } from 'lucide-react';
 import type { BacktestSettings } from '@/backtest/types';
 import type { SmcLayers, SmcOptions } from '@/engine/smc/types';
 import type { PreparedData } from '@/optimizer/runOptimizer';
@@ -26,6 +26,15 @@ import {
   snapshotResult,
   type SavedResult,
 } from '@/optimizer/savedResults';
+import {
+  addHistoryEntry,
+  loadHistory,
+  makeId,
+  removeHistoryEntry,
+  slimResult,
+  type RunHistoryEntry,
+} from '@/optimizer/runHistory';
+import type { Combo } from '@/optimizer/generateGrid';
 import {
   DEFAULT_OPTIMIZER_SETTINGS,
   METRIC_LABEL,
@@ -179,7 +188,13 @@ export function OptimizerPanel({
 
   // ===== Сохранённые результаты (localStorage) =====
   const [savedResults, setSavedResults] = useState<SavedResult[]>(() => loadSaved());
-  const [view, setView] = useState<'optimizer' | 'saved'>('optimizer');
+  // ===== История прогонов (localStorage) =====
+  const [history, setHistory] = useState<RunHistoryEntry[]>(() => loadHistory());
+  const [view, setView] = useState<'optimizer' | 'saved' | 'history'>('optimizer');
+
+  // refs для пауза/прерывания — отдельные, чтобы пауза могла сохранить состояние.
+  const pauseRef = useRef<AbortController | null>(null);
+  const runStartRef = useRef<{ startedAt: number; total: number } | null>(null);
 
   const saveResult = (r: OptimizerResult) => {
     const snap = snapshotResult(r, optSettings.metric);
@@ -234,20 +249,43 @@ export function OptimizerPanel({
     });
   };
 
-  const handleRun = async () => {
-    if (total === 0 || running) return;
-    // Дешёвая sanity-проверка: пробуем получить текущие данные.
+  /**
+   * Запуск (новый или resume).
+   * Для resume передаётся опциональный аргумент:
+   *   - startCombos: оставшиеся комбинации (resume.remainingCombos)
+   *   - initialTop: уже накопленный топ (resume.results)
+   *   - resumeId: id записи истории, которую сменим со status='paused'
+   */
+  const handleRun = async (resume?: {
+    startCombos: Combo[];
+    initialTop: OptimizerResult[];
+    resumeId?: string;
+  }) => {
+    if (running) return;
+    if (!resume && total === 0) return;
     const probe = prepareData(undefined);
     if (probe.candles.length === 0) {
       window.alert('Нет данных для оптимизации — сначала загрузите свечи.');
       return;
     }
-    const combos = generateGrid(optSettings.specs);
-    setResults([]);
+
+    const combos = resume?.startCombos ?? generateGrid(optSettings.specs);
+    const initialTop = resume?.initialTop ?? [];
+    if (!resume) {
+      setResults([]);
+    } else {
+      setResults(initialTop);
+      // Переключаемся на вкладку Параметры чтобы прогресс был виден.
+      setView('optimizer');
+    }
     setProgress({ done: 0, total: combos.length, best: null });
     setRunning(true);
     const ac = new AbortController();
     abortRef.current = ac;
+    pauseRef.current = new AbortController();
+    runStartRef.current = { startedAt: Date.now(), total: combos.length };
+
+    let paused: { processed: number; top: OptimizerResult[]; remaining: Combo[] } | null = null;
     try {
       const found = await runOptimizer({
         prepareData,
@@ -256,14 +294,104 @@ export function OptimizerPanel({
         baseSettings,
         combos,
         optSettings,
+        initialTop,
         signal: ac.signal,
+        pauseSignal: pauseRef.current.signal,
         onProgress: (p) => setProgress({ done: p.done, total: p.total, best: p.bestScore }),
+        onPause: (snap) => { paused = snap; },
       });
       setResults(found);
+
+      // Запись в историю по итогам прогона.
+      const meta = runStartRef.current!;
+      if (paused) {
+        const snap = paused as { processed: number; top: OptimizerResult[]; remaining: Combo[] };
+        addHistoryAndSet({
+          id: makeId(),
+          startedAt: meta.startedAt,
+          finishedAt: null,
+          status: 'paused',
+          optSettings,
+          totalCombos: meta.total,
+          doneIndex: snap.processed,
+          results: snap.top.map(slimResult),
+          remainingCombos: snap.remaining,
+        });
+        // Если возобновляли — старую paused-запись удаляем (заменяем новой).
+        if (resume?.resumeId) {
+          setHistory((prev) => removeHistoryEntry(prev, resume.resumeId!));
+        }
+      } else if (ac.signal.aborted) {
+        // cancelled — сохраняем только если что-то накопили.
+        if (found.length > 0) {
+          addHistoryAndSet({
+            id: makeId(),
+            startedAt: meta.startedAt,
+            finishedAt: Date.now(),
+            status: 'cancelled',
+            optSettings,
+            totalCombos: meta.total,
+            doneIndex: progress.done,
+            results: found.map(slimResult),
+          });
+        }
+      } else {
+        // completed
+        addHistoryAndSet({
+          id: makeId(),
+          startedAt: meta.startedAt,
+          finishedAt: Date.now(),
+          status: 'completed',
+          optSettings,
+          totalCombos: meta.total,
+          doneIndex: meta.total,
+          results: found.map(slimResult),
+        });
+        if (resume?.resumeId) {
+          setHistory((prev) => removeHistoryEntry(prev, resume.resumeId!));
+        }
+      }
     } finally {
       setRunning(false);
       abortRef.current = null;
+      pauseRef.current = null;
+      runStartRef.current = null;
     }
+  };
+
+  const addHistoryAndSet = (entry: RunHistoryEntry) => {
+    setHistory((prev) => addHistoryEntry(prev, entry));
+  };
+
+  const handlePause = () => {
+    if (!running) return;
+    pauseRef.current?.abort();
+  };
+
+  /** Загружает запись истории в основную вкладку (без запуска). */
+  const openHistoryEntry = (e: RunHistoryEntry) => {
+    setOptSettings(e.optSettings);
+    setResults(e.results);
+    setProgress({ done: e.doneIndex, total: e.totalCombos, best: e.results[0]?.score ?? null });
+    setView('optimizer');
+  };
+
+  /** Загружает + сразу возобновляет прогон с оставшихся комбинаций. */
+  const resumeHistoryEntry = (e: RunHistoryEntry) => {
+    if (!e.remainingCombos || e.remainingCombos.length === 0) {
+      window.alert('Нет данных для возобновления (запись не на паузе).');
+      return;
+    }
+    setOptSettings(e.optSettings);
+    handleRun({
+      startCombos: e.remainingCombos,
+      initialTop: e.results,
+      resumeId: e.id,
+    });
+  };
+
+  const deleteHistoryEntry = (id: string) => {
+    setHistory((prev) => removeHistoryEntry(prev, id));
   };
 
   const handleBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -313,6 +441,17 @@ export function OptimizerPanel({
                 }`}
               >
                 Сохранённые ({savedResults.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setView('history')}
+                className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                  view === 'history'
+                    ? 'bg-tv-accent text-white'
+                    : 'text-tv-text-muted hover:text-tv-text'
+                }`}
+              >
+                История ({history.length})
               </button>
             </div>
             {/* Метрика и Top-N — только во вкладке оптимизатора */}
@@ -386,6 +525,13 @@ export function OptimizerPanel({
             onApply={applySaved}
             onDelete={deleteSaved}
           />
+        ) : view === 'history' ? (
+          <HistoryView
+            items={history}
+            onOpen={openHistoryEntry}
+            onResume={resumeHistoryEntry}
+            onDelete={deleteHistoryEntry}
+          />
         ) : (
           <>
         {/* Параметры — в горизонтальной сетке колонок (без вертикального скролла) */}
@@ -420,7 +566,7 @@ export function OptimizerPanel({
                 {!running ? (
                   <button
                     type="button"
-                    onClick={handleRun}
+                    onClick={() => handleRun()}
                     disabled={total === 0}
                     className="flex w-full items-center justify-center gap-1.5 rounded bg-tv-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-tv-accent-hover disabled:opacity-40"
                   >
@@ -446,14 +592,26 @@ export function OptimizerPanel({
                         style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }}
                       />
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => abortRef.current?.abort()}
-                      className="flex items-center justify-center gap-1.5 rounded border border-tv-border px-2 py-1 text-[11px] text-tv-text-dim hover:text-white"
-                    >
-                      <Square className="h-3 w-3" />
-                      Прервать
-                    </button>
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handlePause}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded border border-tv-border bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300 hover:bg-amber-500/20"
+                        title="Сохранить прогон в Историю и остановить (можно возобновить позже)"
+                      >
+                        <Pause className="h-3 w-3" />
+                        Пауза
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => abortRef.current?.abort()}
+                        className="flex flex-1 items-center justify-center gap-1.5 rounded border border-tv-border px-2 py-1 text-[11px] text-tv-text-dim hover:text-white"
+                        title="Прервать прогон (без возможности возобновить)"
+                      >
+                        <Square className="h-3 w-3" />
+                        Прервать
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -831,4 +989,124 @@ function formatDate(ts: number): string {
   const d = new Date(ts);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// ============================================================================
+// История прогонов (вкладка)
+// ============================================================================
+
+const STATUS_LABEL: Record<RunHistoryEntry['status'], string> = {
+  completed: '✅ Завершён',
+  paused: '⏸ Пауза',
+  cancelled: '⛔ Прерван',
+};
+
+function HistoryView({
+  items,
+  onOpen,
+  onResume,
+  onDelete,
+}: {
+  items: readonly RunHistoryEntry[];
+  onOpen: (e: RunHistoryEntry) => void;
+  onResume: (e: RunHistoryEntry) => void;
+  onDelete: (id: string) => void;
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <p className="text-center text-xs text-tv-text-muted">
+          Здесь сохраняется история всех прогонов оптимизатора. Каждый прогон
+          (завершённый, на паузе или прерванный) попадает сюда автоматически.
+          Можно открыть, чтобы посмотреть результаты, или возобновить прерванный.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="flex-1 overflow-auto p-3">
+      <table className="w-full text-[11px]">
+        <thead className="sticky top-0 bg-tv-panel text-tv-text-muted">
+          <tr>
+            <th className="px-2 py-1 text-left">Дата</th>
+            <th className="px-2 py-1 text-left">Статус</th>
+            <th className="px-2 py-1 text-right">Прогресс</th>
+            <th className="px-2 py-1 text-left">Метрика</th>
+            <th className="px-2 py-1 text-right">Top score</th>
+            <th className="px-2 py-1 text-right">Сделок</th>
+            <th className="px-2 py-1 text-right">W/L</th>
+            <th className="px-2 py-1 text-right">P&L (R)</th>
+            <th className="px-2 py-1" />
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((e) => {
+            const best = e.results[0];
+            const pct = e.totalCombos > 0
+              ? Math.round((e.doneIndex / e.totalCombos) * 100)
+              : 0;
+            return (
+              <tr key={e.id} className="border-t border-tv-border/40 hover:bg-tv-panel-hover">
+                <td className="px-2 py-1 text-tv-text-muted">{formatDate(e.startedAt)}</td>
+                <td className="px-2 py-1 text-tv-text">{STATUS_LABEL[e.status]}</td>
+                <td className="px-2 py-1 text-right font-mono text-tv-text-muted">
+                  {e.doneIndex}/{e.totalCombos} ({pct}%)
+                </td>
+                <td className="px-2 py-1 text-tv-text-muted">{METRIC_LABEL[e.optSettings.metric]}</td>
+                <td className="px-2 py-1 text-right font-mono text-tv-accent">
+                  {best ? formatScore(best.score) : '—'}
+                </td>
+                <td className="px-2 py-1 text-right font-mono">{best ? best.report.totalTrades : '—'}</td>
+                <td className="px-2 py-1 text-right font-mono">
+                  {best
+                    ? (
+                      <>
+                        <span className="text-tv-up">{best.report.wins}</span>/
+                        <span className="text-tv-down">{best.report.losses}</span>
+                      </>
+                    )
+                    : '—'}
+                </td>
+                <td className={`px-2 py-1 text-right font-mono ${best && best.report.totalPnlR >= 0 ? 'text-tv-up' : 'text-tv-down'}`}>
+                  {best ? `${best.report.totalPnlR >= 0 ? '+' : ''}${best.report.totalPnlR.toFixed(1)}` : '—'}
+                </td>
+                <td className="px-2 py-1">
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => onOpen(e)}
+                      title="Открыть конфигурацию и результаты в основной вкладке"
+                      className="flex items-center gap-1 rounded border border-tv-border px-2 py-0.5 text-[10px] text-tv-text-muted hover:bg-tv-panel-hover hover:text-tv-text"
+                    >
+                      <FolderOpen className="h-3 w-3" />
+                      Открыть
+                    </button>
+                    {e.status === 'paused' && e.remainingCombos && e.remainingCombos.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => onResume(e)}
+                        title="Возобновить прогон с момента паузы"
+                        className="flex items-center gap-1 rounded border border-tv-border bg-tv-accent/20 px-2 py-0.5 text-[10px] text-tv-accent hover:bg-tv-accent hover:text-white"
+                      >
+                        <Play className="h-3 w-3" />
+                        Возобновить
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onDelete(e.id)}
+                      title="Удалить запись"
+                      className="rounded border border-tv-border px-1.5 py-0.5 text-[10px] text-tv-text-muted hover:bg-red-500 hover:text-white"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 }
