@@ -14,7 +14,15 @@
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { findVisibleRange, type CanvasMetrics } from '@/engine/scale';
+import {
+  findVisibleRange,
+  priceToY,
+  timeToX,
+  xToTime,
+  yToPrice,
+  type CanvasMetrics,
+  type Viewport,
+} from '@/engine/scale';
 import { renderGrid, renderCrosshairAxisLabels } from '@/engine/grid';
 import { renderCandles } from '@/engine/candles';
 import { renderCrosshair } from '@/engine/crosshair';
@@ -417,6 +425,29 @@ export function ChartCanvas({
   // ============================================================================
   const cursorRef = useRef<{ x: number | null; y: number | null }>({ x: null, y: null });
 
+  /**
+   * Состояние инструмента "Линейка": две точки (start/end) в координатах
+   * времени/цены. Активны только когда tool === 'measure'.
+   * Жизненный цикл: mousedown ставит start (end = start), mousemove тянет end,
+   * mouseup фиксирует. Повторный mousedown стартует новое измерение.
+   * Esc / смена инструмента — стирает измерение.
+   */
+  const [measurement, setMeasurement] = useState<{
+    startTime: number;
+    startPrice: number;
+    endTime: number;
+    endPrice: number;
+  } | null>(null);
+  const measureDragRef = useRef<boolean>(false);
+
+  // Сбрасываем измерение при смене инструмента.
+  useEffect(() => {
+    if (tool !== 'measure') {
+      setMeasurement(null);
+      measureDragRef.current = false;
+    }
+  }, [tool]);
+
   const drawOverlay = () => {
     const canvas = overlayCanvasRef.current;
     if (!canvas) return;
@@ -436,6 +467,11 @@ export function ChartCanvas({
     // Draft-зона поверх crosshair
     renderDraftZone({ ctx, metrics, viewport, draft: drawing.draft });
 
+    // Линейка (если активна).
+    if (measurement) {
+      renderMeasurement(ctx, metrics, viewport, measurement, chartTf);
+    }
+
     if (x !== null && y !== null) {
       renderCrosshairAxisLabels({
         ctx,
@@ -447,11 +483,11 @@ export function ChartCanvas({
     }
   };
 
-  // Перерисовать overlay при изменении viewport / метрик / draft / hover
+  // Перерисовать overlay при изменении viewport / метрик / draft / hover / измерения
   useEffect(() => {
     drawOverlay();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewport, metrics, drawing.draft, hoveredCluster]);
+  }, [viewport, metrics, drawing.draft, hoveredCluster, measurement]);
 
   // ============================================================================
   // 4) Mouse-handlers
@@ -465,6 +501,14 @@ export function ChartCanvas({
     if (tool === 'rectangle') {
       const handled = drawing.onMouseDown(x, y);
       if (handled) return;
+    }
+
+    if (tool === 'measure') {
+      const t = xToTime(x, viewport, metrics);
+      const p = yToPrice(y, viewport, metrics);
+      setMeasurement({ startTime: t, startPrice: p, endTime: t, endPrice: p });
+      measureDragRef.current = true;
+      return;
     }
 
     if (tool === 'pointer') {
@@ -500,6 +544,12 @@ export function ChartCanvas({
 
     if (tool === 'rectangle' && drawing.draft) {
       drawing.onMouseMove(x, y);
+    }
+
+    if (tool === 'measure' && measureDragRef.current && measurement) {
+      const t = xToTime(x, viewport, metrics);
+      const p = yToPrice(y, viewport, metrics);
+      setMeasurement({ ...measurement, endTime: t, endPrice: p });
     }
 
     // Hover по маркерам — там, где они вообще рисуются (LTF или single).
@@ -542,6 +592,16 @@ export function ChartCanvas({
       const handled = drawing.onMouseUp();
       if (handled) return;
     }
+    if (tool === 'measure') {
+      measureDragRef.current = false;
+      // Если линейка нулевой длины (просто клик без drag) — стираем.
+      if (measurement &&
+          measurement.startTime === measurement.endTime &&
+          measurement.startPrice === measurement.endPrice) {
+        setMeasurement(null);
+      }
+      return;
+    }
     handlers.onMouseUp();
   };
 
@@ -575,7 +635,7 @@ export function ChartCanvas({
   // 6) Курсор зависит от инструмента и hover-цели
   // ============================================================================
   const cursorClass =
-    tool === 'rectangle'
+    tool === 'rectangle' || tool === 'measure'
       ? 'cursor-crosshair'
       : hoveredSignalId
         ? 'cursor-pointer'
@@ -620,4 +680,123 @@ export function ChartCanvas({
       )}
     </div>
   );
+}
+
+// ============================================================================
+// Линейка (Measurement)
+// ============================================================================
+
+interface Measurement {
+  startTime: number;
+  startPrice: number;
+  endTime: number;
+  endPrice: number;
+}
+
+/**
+ * Рисует линейку: прямоугольную область между двумя точками + линию-диагональ
+ * + информационный лейбл (Δ цены, %, время, число свечей).
+ */
+function renderMeasurement(
+  ctx: CanvasRenderingContext2D,
+  metrics: CanvasMetrics,
+  viewport: Viewport,
+  m: Measurement,
+  chartTf: Timeframe,
+): void {
+  const x1 = timeToX(m.startTime, viewport, metrics);
+  const x2 = timeToX(m.endTime, viewport, metrics);
+  const y1 = priceToY(m.startPrice, viewport, metrics);
+  const y2 = priceToY(m.endPrice, viewport, metrics);
+
+  const left = Math.min(x1, x2);
+  const right = Math.max(x1, x2);
+  const top = Math.min(y1, y2);
+  const bottom = Math.max(y1, y2);
+
+  const isUp = m.endPrice > m.startPrice;
+  const fill = isUp ? 'rgba(34, 197, 94, 0.10)' : 'rgba(239, 68, 68, 0.10)';
+  const stroke = isUp ? 'rgba(34, 197, 94, 0.85)' : 'rgba(239, 68, 68, 0.85)';
+
+  ctx.save();
+  // Прямоугольник
+  ctx.fillStyle = fill;
+  ctx.fillRect(left, top, right - left, bottom - top);
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.strokeRect(left + 0.5, top + 0.5, right - left, bottom - top);
+  ctx.setLineDash([]);
+
+  // Диагональная линия — от start к end
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+
+  // Точки
+  ctx.fillStyle = stroke;
+  ctx.beginPath();
+  ctx.arc(x1, y1, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(x2, y2, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // ---- Лейбл с метриками ----
+  const priceDelta = m.endPrice - m.startPrice;
+  const pricePct = m.startPrice !== 0 ? (priceDelta / m.startPrice) * 100 : 0;
+  const tfMs = timeframeMs(chartTf);
+  const candlesCount = tfMs > 0 ? Math.round(Math.abs(m.endTime - m.startTime) / tfMs) : 0;
+  const timeText = formatDuration(Math.abs(m.endTime - m.startTime));
+
+  const lines = [
+    `${priceDelta >= 0 ? '+' : ''}${priceDelta.toFixed(2)} (${pricePct >= 0 ? '+' : ''}${pricePct.toFixed(2)}%)`,
+    `${timeText} · ${candlesCount} св.`,
+  ];
+
+  ctx.font = '11px ui-sans-serif, system-ui, -apple-system, sans-serif';
+  ctx.textBaseline = 'top';
+  const padX = 6;
+  const padY = 4;
+  const lineH = 13;
+  const w = Math.max(...lines.map((l) => ctx.measureText(l).width)) + padX * 2;
+  const h = lines.length * lineH + padY * 2;
+
+  // Позиция лейбла: рядом с end-точкой, со стороны, противоположной направлению.
+  let lx = x2 + 8;
+  let ly = y2 - h - 6;
+  if (lx + w > metrics.width) lx = x2 - w - 8;
+  if (ly < 0) ly = y2 + 8;
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+  ctx.fillRect(lx, ly, w, h);
+  ctx.strokeStyle = stroke;
+  ctx.strokeRect(lx + 0.5, ly + 0.5, w, h);
+  ctx.fillStyle = stroke;
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i]!, lx + padX, ly + padY + i * lineH);
+  }
+  ctx.restore();
+}
+
+function timeframeMs(tf: Timeframe): number {
+  if (tf === '5m') return 5 * 60 * 1000;
+  if (tf === '15m') return 15 * 60 * 1000;
+  if (tf === '1h') return 60 * 60 * 1000;
+  return 0;
+}
+
+function formatDuration(ms: number): string {
+  const totalMin = Math.round(ms / 60000);
+  const days = Math.floor(totalMin / (60 * 24));
+  const hours = Math.floor((totalMin % (60 * 24)) / 60);
+  const mins = totalMin % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}д`);
+  if (hours > 0) parts.push(`${hours}ч`);
+  if (mins > 0 || parts.length === 0) parts.push(`${mins}м`);
+  return parts.join(' ');
 }

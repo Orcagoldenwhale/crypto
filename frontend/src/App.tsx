@@ -1250,6 +1250,7 @@ export default function App() {
         // Рисование зон — на экране HTF и в single-режиме (там нет отдельного HTF).
         if (chartView === 'htf' || chartView === 'single') setTool('rectangle');
       },
+      m: () => setTool('measure'),
       s: () => handleRunScanner(),
       escape: () => {
         setTool('pointer');

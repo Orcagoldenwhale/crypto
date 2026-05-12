@@ -11,10 +11,11 @@ import {
   Package,
   Settings,
   HelpCircle,
+  Ruler,
 } from 'lucide-react';
 import type { SmcLayers } from '@/engine/smc/types';
 
-export type Tool = 'pointer' | 'rectangle';
+export type Tool = 'pointer' | 'rectangle' | 'measure';
 
 interface ToolboxProps {
   tool: Tool;
@@ -99,6 +100,15 @@ export function Toolbox({
         onClick={() => onSelectTool('rectangle')}
       >
         <Square className="h-5 w-5" />
+      </ToolButton>
+
+      <ToolButton
+        title="Линейка — измерить цену/% /время между двумя точками (M)"
+        active={tool === 'measure'}
+        accent={tool === 'measure'}
+        onClick={() => onSelectTool('measure')}
+      >
+        <Ruler className="h-5 w-5" />
       </ToolButton>
 
       <div className="mx-auto my-0.5 h-px w-6 bg-tv-border" />
