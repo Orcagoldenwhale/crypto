@@ -47,13 +47,12 @@ export function BacktestPanel({ settings, onSettingsChange, onRun, report, runni
 
           <div className="max-h-[70vh] overflow-y-auto px-3 py-2">
             <Section title="Управление риском">
-              <Row label="Стоп-лосс (%)" hint="Отступ стопа от цены входа в %">
+              <Row label="Стоп-лосс (%)" hint="Верхний предел отступа SL от цены входа. При включённом 'SL за фитилём' выбирается ближайший из (stopPct, фитиль)">
                 <NumberInput
                   value={settings.stopPct}
                   min={0.05}
                   max={10}
                   step={0.05}
-                  disabled={settings.slBehindObWick && settings.slBehindFvgEdge}
                   onChange={(v) => update('stopPct', v)}
                 />
               </Row>
@@ -68,13 +67,13 @@ export function BacktestPanel({ settings, onSettingsChange, onRun, report, runni
               </Row>
               <Toggle
                 label="SL за фитилём OB"
-                hint="для OB/BB/RB ставить SL на границе зоны вместо stopPct"
+                hint="для OB/BB/RB — кандидат на SL = граница зоны. Применяется ближайший из (stopPct, фитиль)"
                 checked={settings.slBehindObWick}
                 onChange={(v) => update('slBehindObWick', v)}
               />
               <Toggle
                 label="SL за дальней границей FVG"
-                hint="для входов из FVG ставить SL на дальнем краю гэпа вместо stopPct"
+                hint="для FVG — кандидат на SL = дальний край гэпа. Применяется ближайший из (stopPct, граница)"
                 checked={settings.slBehindFvgEdge}
                 onChange={(v) => update('slBehindFvgEdge', v)}
               />

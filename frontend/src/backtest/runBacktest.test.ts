@@ -283,7 +283,7 @@ describe('runBacktest', () => {
     expect(report.trades[0]!.entryPrice).toBe(100);
   });
 
-  it('slBehindObWick: SL устанавливается на minPrice зоны для OB', () => {
+  it('slBehindObWick: SL — ближайший из (stopPct, фитиль OB)', () => {
     const overlay: SmcOverlay = {
       fvgs: [],
       liquidity: [],
@@ -314,17 +314,28 @@ describe('runBacktest', () => {
       makeCandle(T0 + MS5, 100, 101, 99, 100.8, 10, 100, -5, 2),
       makeCandle(T0 + MS5 * 2, 100.8, 108, 100.5, 107, 5, 104, -1, 1),
     ];
-    const settings: BacktestSettings = {
+    // Случай A: stopPct=10% даёт SL=90.72 — фитиль (95) ближе → SL=95.
+    const looseSettings: BacktestSettings = {
+      ...DEFAULT_BACKTEST_SETTINGS,
+      stopPct: 10,
+      zoneGapPct: 0,
+      fvgMaxFillPct: 100,
+      slBehindObWick: true,
+    };
+    const looseReport = runBacktest(candles, overlay, looseSettings);
+    expect(looseReport.trades[0]!.stopPrice).toBe(95);
+
+    // Случай B: stopPct=0.3% даёт SL≈100.5 — он ближе чем фитиль (95).
+    // SL = stopPct SL (фитиль слишком далеко, рискнули бы лишнее).
+    const tightSettings: BacktestSettings = {
       ...DEFAULT_BACKTEST_SETTINGS,
       stopPct: 0.3,
       zoneGapPct: 0,
       fvgMaxFillPct: 100,
       slBehindObWick: true,
     };
-    const report = runBacktest(candles, overlay, settings);
-    expect(report.totalTrades).toBe(1);
-    // SL = minPrice зоны = 95
-    expect(report.trades[0]!.stopPrice).toBe(95);
+    const tightReport = runBacktest(candles, overlay, tightSettings);
+    expect(tightReport.trades[0]!.stopPrice).toBeCloseTo(100.4976, 3);
   });
 
   it('slBehindFvgEdge: SL устанавливается на дальней границе FVG', () => {
@@ -353,16 +364,16 @@ describe('runBacktest', () => {
       makeCandle(T0 + MS5, 100, 101, 99, 100.8, 10, 100, -5, 2),
       makeCandle(T0 + MS5 * 2, 100.8, 108, 100.5, 107, 5, 104, -1, 1),
     ];
+    // С большим stopPct (5%) фитиль FVG (99) ближе чем pctSl (95.76) → SL=99.
     const settings: BacktestSettings = {
       ...DEFAULT_BACKTEST_SETTINGS,
-      stopPct: 0.3,
+      stopPct: 5,
       zoneGapPct: 0,
       fvgMaxFillPct: 100,
       slBehindFvgEdge: true,
     };
     const report = runBacktest(candles, overlay, settings);
     expect(report.totalTrades).toBe(1);
-    // SL = minPrice FVG = 99 (gap=0%, без расширения)
     expect(report.trades[0]!.stopPrice).toBe(99);
   });
 });

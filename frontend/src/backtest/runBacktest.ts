@@ -300,17 +300,25 @@ export function runBacktest(
       matched = true;
 
       // ---- Stop-loss ----
-      // Выбираем SL за границей зоны если соответствующая галочка включена
-      // для типа зоны. Иначе — обычный % от цены входа.
-      let stopPrice: Price;
+      // Собираем все актуальные кандидаты на SL и выбираем БЛИЖАЙШИЙ к entry
+      // (минимальное расстояние). Так stopPct работает как верхний предел
+      // риска, а wick-SL не уводит стоп дальше чем нужно.
+      const stopOffset = entryPrice * (settings.stopPct / 100);
+      const pctSl: Price = type === 'LONG'
+        ? entryPrice - stopOffset
+        : entryPrice + stopOffset;
       const useObSl = settings.slBehindObWick && zone.obKind !== null;
       const useFvgSl = settings.slBehindFvgEdge && zone.fvgKind !== null;
-      if (useObSl || useFvgSl) {
-        stopPrice = type === 'LONG' ? zone.minPrice : zone.maxPrice;
-      } else {
-        const stopOffset = entryPrice * (settings.stopPct / 100);
-        stopPrice = type === 'LONG' ? entryPrice - stopOffset : entryPrice + stopOffset;
-      }
+      const wickSl: Price | null = (useObSl || useFvgSl)
+        ? (type === 'LONG' ? zone.minPrice : zone.maxPrice)
+        : null;
+      // Для LONG ближайший SL ниже entry = с НАИБОЛЬШЕЙ ценой.
+      // Для SHORT ближайший SL выше entry = с НАИМЕНЬШЕЙ ценой.
+      const stopPrice: Price = wickSl === null
+        ? pctSl
+        : type === 'LONG'
+          ? Math.max(pctSl, wickSl)
+          : Math.min(pctSl, wickSl);
 
       // ---- Take-profit от актуального риска ----
       const risk = Math.abs(entryPrice - stopPrice);
