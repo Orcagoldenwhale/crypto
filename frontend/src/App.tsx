@@ -53,6 +53,7 @@ import { runSmcAnalysis } from '@/engine/smc';
 import { EMPTY_SMC_OVERLAY, type SmcLayers, type SmcOptions } from '@/engine/smc/types';
 import { SmcSettingsPopover } from '@/components/SmcSettingsPopover';
 import { BacktestPanel } from '@/components/BacktestPanel';
+import { OptimizerPanel } from '@/components/OptimizerPanel';
 import { HelpModal } from '@/components/HelpModal';
 import { runBacktest, collectZones, type SmcZoneRect } from '@/backtest/runBacktest';
 import type { BacktestSettings, BacktestReport as BacktestReportData } from '@/backtest/types';
@@ -180,6 +181,7 @@ export default function App() {
   // Бэктест
   // ============================================================================
   const [backtestOpen, setBacktestOpen] = useState(false);
+  const [optimizerOpen, setOptimizerOpen] = useState(false);
   const [backtestReport, setBacktestReport] = useState<BacktestReportData | null>(null);
   const [backtestRunning, setBacktestRunning] = useState(false);
   const [backtestZones, setBacktestZones] = useState<SmcZoneRect[]>([]);
@@ -548,6 +550,9 @@ export default function App() {
 
   const handleToggleBacktest = useCallback(() => {
     setBacktestOpen((prev) => !prev);
+  }, []);
+  const handleToggleOptimizer = useCallback(() => {
+    setOptimizerOpen((prev) => !prev);
   }, []);
   const handleRunBacktest = useCallback(
     (settings: BacktestSettings) => {
@@ -1331,6 +1336,8 @@ export default function App() {
         liveStats={liveStats}
         onToggleLive={handleToggleLive}
         backtestOpen={backtestOpen}
+        optimizerOpen={optimizerOpen}
+        onToggleOptimizer={handleToggleOptimizer}
         onToggleBacktest={handleToggleBacktest}
       />
 
@@ -1403,6 +1410,21 @@ export default function App() {
             onRun={handleRunBacktest}
             report={backtestReport}
             running={backtestRunning}
+          />
+        )}
+
+        {/* Окно оптимизатора */}
+        {optimizerOpen && (
+          <OptimizerPanel
+            baseSettings={{ ...backtestSettings, fvgMaxFillPct: smcOpts.fvgMaxFillPct }}
+            candles={ltfData as Candle5m[]}
+            overlay={smcOverlay}
+            onClose={handleToggleOptimizer}
+            onApply={(next) => {
+              setBacktestSettings(next);
+              setOptimizerOpen(false);
+              setBacktestOpen(true);
+            }}
           />
         )}
 

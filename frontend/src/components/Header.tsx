@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Maximize2, FileText, ArrowLeft, Sparkles, FolderOpen, Radio, FlaskConical } from 'lucide-react';
+import { Maximize2, FileText, ArrowLeft, Sparkles, FolderOpen, Radio, FlaskConical, Rocket } from 'lucide-react';
 import type { LiveStatus, Timeframe } from '@/types';
 import type { LiveDebugStats } from '@/data/liveCandleManager';
 import { APP_VERSION, buildTimeShort } from '@/version';
@@ -35,6 +35,9 @@ interface HeaderProps {
   /** Бэктест: открыть/закрыть панель настроек. */
   backtestOpen: boolean;
   onToggleBacktest: () => void;
+  /** Открыть/закрыть окно оптимизатора. */
+  optimizerOpen: boolean;
+  onToggleOptimizer: () => void;
 }
 
 export function Header({
@@ -53,6 +56,8 @@ export function Header({
   onToggleLive,
   backtestOpen,
   onToggleBacktest,
+  optimizerOpen,
+  onToggleOptimizer,
 }: HeaderProps) {
   // input type=file держим скрытым и кликаем программно — стандартная техника.
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -136,6 +141,19 @@ export function Header({
         >
           <FlaskConical className="h-4 w-4" />
           Бэктест
+        </button>
+        <button
+          type="button"
+          onClick={onToggleOptimizer}
+          title="Оптимизатор параметров бэктеста (грид-поиск)"
+          className={
+            optimizerOpen
+              ? 'flex items-center gap-2 rounded border border-fuchsia-500 bg-fuchsia-500/20 px-3 py-1.5 text-sm font-medium text-fuchsia-300 transition-colors hover:bg-fuchsia-500/30'
+              : 'flex items-center gap-2 rounded border border-tv-border bg-tv-panel-hover px-3 py-1.5 text-sm font-medium text-tv-text transition-colors hover:bg-tv-panel-active'
+          }
+        >
+          <Rocket className="h-4 w-4" />
+          Оптимизатор
         </button>
         <button
           type="button"
