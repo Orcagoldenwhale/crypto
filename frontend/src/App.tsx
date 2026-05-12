@@ -1443,6 +1443,10 @@ export default function App() {
             onApplySmc={(next) => {
               setSmcOpts(next);
             }}
+            onApplyMultiplier={(mult) => {
+              if (mult === undefined) return;
+              setTickPref({ manual: mult });
+            }}
           />
         )}
 

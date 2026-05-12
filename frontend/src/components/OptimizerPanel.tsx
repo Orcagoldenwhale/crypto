@@ -53,6 +53,11 @@ interface OptimizerPanelProps {
   onApply: (next: BacktestSettings) => void;
   /** Применить найденные SMC-параметры. */
   onApplySmc: (next: SmcOptions) => void;
+  /**
+   * Применить tick-multiplier (только 1 / 2 / 5 / 10). undefined =
+   * параметр не варьировался, ничего не менять.
+   */
+  onApplyMultiplier?: (mult: 1 | 2 | 5 | 10 | undefined) => void;
 }
 
 const PARAM_LABELS: Record<OptimizableKey, string> = {
@@ -144,6 +149,7 @@ export function OptimizerPanel({
   onClose,
   onApply,
   onApplySmc,
+  onApplyMultiplier,
 }: OptimizerPanelProps) {
   const [optSettings, setOptSettings] = useState<OptimizerSettings>(DEFAULT_OPTIMIZER_SETTINGS);
   const [running, setRunning] = useState(false);
@@ -179,6 +185,9 @@ export function OptimizerPanel({
   const applySaved = (s: SavedResult) => {
     onApplySmc({ ...baseSmcOpts, ...s.smcParams });
     onApply({ ...baseSettings, ...s.btParams });
+    if (onApplyMultiplier && s.dataParams.tickMultiplier !== undefined) {
+      onApplyMultiplier(s.dataParams.tickMultiplier as 1 | 2 | 5 | 10);
+    }
   };
 
   useEffect(() => {
@@ -422,6 +431,7 @@ export function OptimizerPanel({
                 baseSmcOpts={baseSmcOpts}
                 onApply={onApply}
                 onApplySmc={onApplySmc}
+                onApplyMultiplier={onApplyMultiplier}
                 onSave={saveResult}
               />
             )}
@@ -550,6 +560,7 @@ function ResultsTable({
   baseSmcOpts,
   onApply,
   onApplySmc,
+  onApplyMultiplier,
   onSave,
 }: {
   results: readonly OptimizerResult[];
@@ -558,6 +569,7 @@ function ResultsTable({
   baseSmcOpts: SmcOptions;
   onApply: (next: BacktestSettings) => void;
   onApplySmc: (next: SmcOptions) => void;
+  onApplyMultiplier?: (mult: 1 | 2 | 5 | 10 | undefined) => void;
   onSave: (r: OptimizerResult) => void;
 }) {
   return (
@@ -584,6 +596,7 @@ function ResultsTable({
             baseSmcOpts={baseSmcOpts}
             onApply={onApply}
             onApplySmc={onApplySmc}
+            onApplyMultiplier={onApplyMultiplier}
             onSave={onSave}
           />
         ))}
@@ -599,6 +612,7 @@ function ResultRow({
   baseSmcOpts,
   onApply,
   onApplySmc,
+  onApplyMultiplier,
   onSave,
 }: {
   idx: number;
@@ -607,14 +621,16 @@ function ResultRow({
   baseSmcOpts: SmcOptions;
   onApply: (next: BacktestSettings) => void;
   onApplySmc: (next: SmcOptions) => void;
+  onApplyMultiplier?: (mult: 1 | 2 | 5 | 10 | undefined) => void;
   onSave: (r: OptimizerResult) => void;
 }) {
   const { report, btParams, smcParams, dataParams, score } = result;
   const handleApply = () => {
     onApplySmc({ ...baseSmcOpts, ...smcParams });
     onApply({ ...baseSettings, ...btParams });
-    // Tick multiplier из dataParams применить нельзя через эти колбэки —
-    // пользователь сам поставит из тулбара. Показываем в строке параметров.
+    if (onApplyMultiplier && dataParams.tickMultiplier !== undefined) {
+      onApplyMultiplier(dataParams.tickMultiplier as 1 | 2 | 5 | 10);
+    }
   };
   return (
     <tr className="border-t border-tv-border/40 hover:bg-tv-panel-hover">
