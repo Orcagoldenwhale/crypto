@@ -649,8 +649,11 @@ export default function App() {
             rbUseMeanThreshold: smcOpts.rbUseMeanThreshold,
             obExtraction: smcOpts.obExtraction,
             obRequireAbsorption: smcOpts.obRequireAbsorption,
+            obAllowMultiCandle: smcOpts.obAllowMultiCandle,
             obSearchAtSweep: smcOpts.obSearchAtSweep,
             obSearchAtFvg: smcOpts.obSearchAtFvg,
+            obSearchAtPrevBlock: smcOpts.obSearchAtPrevBlock,
+            obUseMeanThreshold: smcOpts.obUseMeanThreshold,
           },
           merged_settings: merged,
         });
