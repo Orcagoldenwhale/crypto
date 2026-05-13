@@ -9,6 +9,7 @@
  */
 
 import type { TfPairId } from '@/types';
+import type { SmcLayers } from '@/engine/smc/types';
 import type { Combo } from './generateGrid';
 import type { OptimizerResult, OptimizerSettings } from './types';
 
@@ -44,6 +45,11 @@ export interface RunHistoryEntry {
    * Optional для backward-compat с записями до 1.36.1.
    */
   tfPairId?: TfPairId;
+  /**
+   * Включённые SMC-слои на момент прогона. Optional для backward-compat
+   * с записями до 1.39.2. См. SavedResult.smcLayers — та же мотивация.
+   */
+  smcLayers?: SmcLayers;
 }
 
 const STORAGE_KEY = 'smc-optimizer-history-v1';

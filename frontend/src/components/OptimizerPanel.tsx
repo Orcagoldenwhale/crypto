@@ -87,6 +87,13 @@ interface OptimizerPanelProps {
    * 1.36.1 не имеют tfPairId, тогда callback не вызывается.
    */
   onApplyTfPair?: ((tfPairId: TfPairId) => void) | undefined;
+  /**
+   * Применить SMC-слои (toggle FVG/Liq/Structure/OB/BB/RB) из saved.
+   * Без этого overlay считается с тем что у юзера сейчас включено,
+   * НЕ с тем что было активно при создании saved → разные зоны →
+   * разные сделки. Optional для legacy-записей до 1.39.2.
+   */
+  onApplySmcLayers?: ((layers: SmcLayers) => void) | undefined;
   /** Текущая торговая пара (например BTCUSDT) — пишется в Saved/History. */
   symbol: string;
   /** Текущая TF-пара (1h-5m / 5m-5m / …) — пишется в Saved/History. */
@@ -184,6 +191,7 @@ export function OptimizerPanel({
   onApplySmc,
   onApplyMultiplier,
   onApplyTfPair,
+  onApplySmcLayers,
   symbol,
   tfPairId,
 }: OptimizerPanelProps) {
@@ -237,7 +245,7 @@ export function OptimizerPanel({
   } | null>(null);
 
   const saveResult = (r: OptimizerResult) => {
-    const snap = snapshotResult(r, optSettings.metric, { symbol, tfPairId });
+    const snap = snapshotResult(r, optSettings.metric, { symbol, tfPairId, smcLayers });
     setSavedResults((prev) => {
       const next = [snap, ...prev];
       persistSaved(next);
@@ -259,6 +267,7 @@ export function OptimizerPanel({
       savedSymbol: s.symbol ?? null,
       savedTfPairId: s.tfPairId ?? null,
       savedTickMult: s.dataParams.tickMultiplier ?? null,
+      savedSmcLayers: s.smcLayers ?? null,
       currentSymbol: symbol,
       currentTfPairId: tfPairId,
       symbolMismatch: s.symbol && s.symbol !== symbol,
@@ -274,6 +283,7 @@ export function OptimizerPanel({
       onApplySmc,
       onApplyMultiplier,
       onApplyTfPair,
+      onApplySmcLayers,
     });
   };
 
@@ -461,6 +471,7 @@ export function OptimizerPanel({
           results: snap.top.map(slimResult),
           symbol,
           tfPairId,
+          smcLayers,
         });
         // Если возобновляли — старую paused-запись удаляем (заменяем новой).
         if (resume?.resumeId) {
@@ -505,6 +516,7 @@ export function OptimizerPanel({
           results: found.map(slimResult),
           symbol,
           tfPairId,
+          smcLayers,
         });
         if (resume?.resumeId) {
           setHistory((prev) => removeHistoryEntry(prev, resume.resumeId!));

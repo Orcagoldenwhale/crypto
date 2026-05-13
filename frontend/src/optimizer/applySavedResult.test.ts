@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { applySavedResult } from './applySavedResult';
 import type { SavedResult } from './savedResults';
 import { DEFAULT_BACKTEST_SETTINGS } from '@/backtest/types';
-import type { SmcOptions } from '@/engine/smc/types';
+import type { SmcLayers, SmcOptions } from '@/engine/smc/types';
 import type { TfPairId } from '@/types';
 
 const baseSmcOpts: SmcOptions = {
@@ -130,6 +130,59 @@ describe('applySavedResult', () => {
       onApplyMultiplier,
     });
     expect(onApplyMultiplier).not.toHaveBeenCalled();
+  });
+
+  it('smcLayers из saved восстанавливаются через onApplySmcLayers', () => {
+    const onApplySmcLayers = vi.fn();
+    const savedLayers: SmcLayers = {
+      fvg: false, liquidity: false, structure: false,
+      orderBlocks: true, breakerBlocks: true, rejectionBlocks: true,
+    };
+    applySavedResult(makeSaved({ smcLayers: savedLayers }), {
+      baseSettings: DEFAULT_BACKTEST_SETTINGS,
+      baseSmcOpts,
+      currentTfPairId: '15m-5m',
+      onApply: vi.fn(),
+      onApplySmc: vi.fn(),
+      onApplySmcLayers,
+    });
+    expect(onApplySmcLayers).toHaveBeenCalledWith(savedLayers);
+  });
+
+  it('legacy saved без smcLayers — callback не вызывается', () => {
+    const onApplySmcLayers = vi.fn();
+    applySavedResult(makeSaved(), {
+      baseSettings: DEFAULT_BACKTEST_SETTINGS,
+      baseSmcOpts,
+      currentTfPairId: '15m-5m',
+      onApply: vi.fn(),
+      onApplySmc: vi.fn(),
+      onApplySmcLayers,
+    });
+    expect(onApplySmcLayers).not.toHaveBeenCalled();
+  });
+
+  it('порядок: TF-пара → smcLayers → SMC → BT', () => {
+    const calls: string[] = [];
+    applySavedResult(
+      makeSaved({
+        tfPairId: '5m-5m',
+        smcLayers: {
+          fvg: true, liquidity: false, structure: false,
+          orderBlocks: false, breakerBlocks: false, rejectionBlocks: false,
+        },
+      }),
+      {
+        baseSettings: DEFAULT_BACKTEST_SETTINGS,
+        baseSmcOpts,
+        currentTfPairId: '15m-5m',
+        onApply: vi.fn(() => calls.push('bt')),
+        onApplySmc: vi.fn(() => calls.push('smc')),
+        onApplyTfPair: vi.fn(() => calls.push('tfPair')),
+        onApplySmcLayers: vi.fn(() => calls.push('smcLayers')),
+      },
+    );
+    expect(calls).toEqual(['tfPair', 'smcLayers', 'smc', 'bt']);
   });
 
   it('merge: SMC/BT параметры объединяются с base (не теряются текущие)', () => {

@@ -7,7 +7,7 @@
  */
 
 import type { BacktestReport, BacktestSettings } from '@/backtest/types';
-import type { SmcOptions } from '@/engine/smc/types';
+import type { SmcLayers, SmcOptions } from '@/engine/smc/types';
 import type { TfPairId } from '@/types';
 import type { OptimizerMetric, OptimizerResult, OptimizerSettings } from './types';
 
@@ -47,6 +47,16 @@ export interface SavedResult {
    * Optional для backward-compat с записями до 1.36.1.
    */
   tfPairId?: TfPairId;
+  /**
+   * Включённые SMC-слои на момент прогона (FVG/Liq/Structure/OB/BB/RB).
+   * Optional для backward-compat с записями до 1.39.2.
+   *
+   * Без этого поля «Применить» не восстанавливал layer-toggles → SMC-overlay
+   * считался с тем что было активно у пользователя сейчас → другие зоны →
+   * другие сделки. ОЧЕНЬ часто давало разные результаты для одних и тех же
+   * params (smcParams ≠ smcLayers!).
+   */
+  smcLayers?: SmcLayers;
 }
 
 const STORAGE_KEY = 'smc-optimizer-saved-results-v1';
@@ -99,7 +109,7 @@ export function persistOptimizerDefaults(settings: OptimizerSettings): void {
 export function snapshotResult(
   result: OptimizerResult,
   metric: OptimizerMetric,
-  source?: { symbol?: string; tfPairId?: TfPairId },
+  source?: { symbol?: string; tfPairId?: TfPairId; smcLayers?: SmcLayers },
 ): SavedResult {
   const r: BacktestReport = result.report;
   // exactOptionalPropertyTypes=true → опциональные поля не должны явно
@@ -124,5 +134,6 @@ export function snapshotResult(
     },
     ...(source?.symbol !== undefined ? { symbol: source.symbol } : {}),
     ...(source?.tfPairId !== undefined ? { tfPairId: source.tfPairId } : {}),
+    ...(source?.smcLayers !== undefined ? { smcLayers: source.smcLayers } : {}),
   };
 }

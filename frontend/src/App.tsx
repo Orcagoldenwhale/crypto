@@ -1756,6 +1756,9 @@ export default function App() {
             onApplyTfPair={(nextTfPairId) => {
               setTfPairId(nextTfPairId);
             }}
+            onApplySmcLayers={(layers) => {
+              setSmcLayers(layers);
+            }}
             symbol={symbol}
             tfPairId={tfPairId}
           />
