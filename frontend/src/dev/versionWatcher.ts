@@ -45,7 +45,6 @@ if (import.meta.env.DEV) {
       if (!match) return;
       const remote = match[1];
       if (remote && remote !== APP_VERSION) {
-        // eslint-disable-next-line no-console
         console.info(
           `[dev:versionWatcher] APP_VERSION ${APP_VERSION} → ${remote}, reloading…`,
         );
@@ -58,7 +57,6 @@ if (import.meta.env.DEV) {
 
   const id = setInterval(() => {
     if (consecutiveFailures >= MAX_FAILS) {
-      // eslint-disable-next-line no-console
       console.warn(
         '[dev:versionWatcher] too many failures, stopping polling. Maybe dev server is down.',
       );
@@ -68,6 +66,5 @@ if (import.meta.env.DEV) {
     void tick();
   }, POLL_MS);
 
-  // eslint-disable-next-line no-console
   console.info(`[dev:versionWatcher] enabled (${POLL_MS}ms poll)`);
 }

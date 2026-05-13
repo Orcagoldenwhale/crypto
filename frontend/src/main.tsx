@@ -17,7 +17,6 @@ if ('serviceWorker' in navigator) {
     .getRegistrations()
     .then((regs) => {
       for (const r of regs) {
-        // eslint-disable-next-line no-console
         console.warn('[startup] Unregistering stale service worker:', r.scope);
         void r.unregister();
       }
@@ -31,7 +30,6 @@ if ('caches' in window) {
     .keys()
     .then((keys) => {
       for (const k of keys) {
-        // eslint-disable-next-line no-console
         console.warn('[startup] Deleting stale cache storage:', k);
         void caches.delete(k);
       }
@@ -42,7 +40,6 @@ if ('caches' in window) {
 // 3. Печатаем явный signature в консоль — диагностика «свежий ли фронт».
 //    Если в консоли видно старое время, а в терминале Vite свежее — кэш не сбросился.
 const buildTime = buildTimeShort();
-// eslint-disable-next-line no-console
 console.log(
   `%c SMC Terminal %c v${APP_VERSION} %c built ${buildTime} `,
   'background:#2962ff;color:#fff;padding:2px 6px;border-radius:3px 0 0 3px;font-weight:bold;',

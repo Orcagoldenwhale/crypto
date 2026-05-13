@@ -228,6 +228,9 @@ export function ChartCanvas({
   // Это защита от рассинхронизации, например после повторного прогона сканера.
   useEffect(() => {
     if (hoveredSignalId && !signals.some((s) => s.id === hoveredSignalId)) {
+      // Защита от рассинхрона: hovered-id указывает на удалённый сигнал.
+      // Корректный setState в useEffect — реагируем на внешнее изменение списка.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setHoveredSignalId(null);
     }
   }, [signals, hoveredSignalId]);
@@ -235,6 +238,7 @@ export function ChartCanvas({
   // Любая смена viewport/timeframe инвалидирует старый hovered-cluster
   // (его координаты больше не соответствуют пикселям). Снимаем хвост наружу.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHoveredCluster(null);
     onHoverCluster?.(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -418,6 +422,7 @@ export function ChartCanvas({
     smcOverlay,
     backtestTrades,
     backtestZones,
+    liqUseBslSslLabels,
   ]);
 
   // ============================================================================
@@ -443,6 +448,9 @@ export function ChartCanvas({
   // Сбрасываем измерение при смене инструмента.
   useEffect(() => {
     if (tool !== 'measure') {
+      // Корректный setState в useEffect — реагируем на внешнее переключение
+      // активного инструмента (стираем незавершённое измерение).
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setMeasurement(null);
       measureDragRef.current = false;
     }

@@ -124,6 +124,8 @@ describe('runSmcAnalysis · per-layer hideMitigated', () => {
         liquidity: true,
         structure: true,
         orderBlocks: true,
+        breakerBlocks: true,
+        rejectionBlocks: true,
       },
     });
     for (const f of overlay.fvgs) expect(f.unmitigated).toBe(true);
@@ -135,7 +137,7 @@ describe('runSmcAnalysis · per-layer hideMitigated', () => {
   it('пустой набор слоёв → пустой overlay даже с включёнными флагами', () => {
     const overlay = runSmcAnalysis(
       candles,
-      { fvg: false, liquidity: false, structure: false, orderBlocks: false },
+      { fvg: false, liquidity: false, structure: false, orderBlocks: false, breakerBlocks: false, rejectionBlocks: false },
       {
         ...DEFAULT_SMC_OPTIONS,
         hideMitigated: {
@@ -143,6 +145,8 @@ describe('runSmcAnalysis · per-layer hideMitigated', () => {
           liquidity: true,
           structure: true,
           orderBlocks: true,
+          breakerBlocks: true,
+          rejectionBlocks: true,
         },
       },
     );

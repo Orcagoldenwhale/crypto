@@ -264,7 +264,7 @@ describe('detectOrderBlocks', () => {
     // С sweep-контекстом и ликвидностью на 110 (BSL) — OB должен появиться.
     const liq = [
       { id: 'l', kind: 'high' as const, price: 110, startTime: t(0), endTime: t(1), touches: 2,
-        sweep: { time: t(2), priceExtreme: 112 }, position: 'external' as const },
+        sweep: { time: t(2), extremum: 112 }, position: 'external' as const },
     ];
     const withCtx = detectOrderBlocks(candles, [], {
       searchAtSweep: true,

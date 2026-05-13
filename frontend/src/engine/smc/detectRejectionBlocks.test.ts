@@ -79,6 +79,7 @@ describe('detectRejectionBlocks', () => {
         endTime: T0,
         touches: 2,
         sweep: null,
+        position: 'external',
       },
     ];
     const result = detectRejectionBlocks(candles, liq, { requireSweep: true });

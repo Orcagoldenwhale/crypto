@@ -32,6 +32,7 @@ describe('fillAggTradeGap', () => {
   function makeFetch(pages: ReadonlyArray<readonly unknown[]>) {
     let i = 0;
     return async (_url: RequestInfo | URL): Promise<Response> => {
+      void _url;
       const data = pages[i++] ?? [];
       return {
         ok: true,

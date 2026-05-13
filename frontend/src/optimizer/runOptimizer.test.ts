@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { runOptimizer, type PreparedData } from './runOptimizer';
-import { DEFAULT_OPTIMIZER_SETTINGS } from './types';
+import { DEFAULT_OPTIMIZER_SETTINGS, type OptimizerResult } from './types';
 import type { Combo } from './generateGrid';
 import type { Candle5m } from '@/types';
 import type { SmcLayers, SmcOptions } from '@/engine/smc/types';
@@ -113,7 +113,7 @@ describe('runOptimizer', () => {
   });
 
   it('initialTop сохраняется при resume', async () => {
-    const seed = [{
+    const seed: OptimizerResult[] = [{
       btParams: {},
       smcParams: {},
       dataParams: {},
@@ -123,7 +123,7 @@ describe('runOptimizer', () => {
         trades: [],
       },
       score: 2,
-    }] as const;
+    }];
     const top = await runOptimizer({
       prepareData: dummyPrepareData,
       baseSmcOpts,

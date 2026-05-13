@@ -20,7 +20,7 @@
  *     действия, чтобы не утекала память за длинную сессию.
  */
 
-import { useRef } from 'react';
+import { useState } from 'react';
 
 export interface UndoableAction<T> {
   /** Полезная нагрузка — описывает суть операции для caller. */
@@ -98,13 +98,15 @@ export function createUndoStack<T>(opts: Options = {}): UndoStackApi<T> {
 }
 
 /**
- * React-хук — обёртка над `createUndoStack`. Хранит экземпляр в useRef,
- * чтобы он не пересоздавался между рендерами.
+ * React-хук — обёртка над `createUndoStack`. Хранит экземпляр в useState
+ * с lazy-init, чтобы он создавался один раз и не пересоздавался между
+ * рендерами. setter не используется (это API-объект, мутирует поля сам).
+ *
+ * Раньше тут был useRef + `if (!ref.current) init()`, но React 19's
+ * eslint-rule `react-hooks/refs` запрещает читать ref.current во время
+ * рендера. useState-with-lazy-init — официальный паттерн для синглтонов.
  */
 export function useUndoStack<T>(opts: Options = {}): UndoStackApi<T> {
-  const ref = useRef<UndoStackApi<T> | null>(null);
-  if (!ref.current) {
-    ref.current = createUndoStack<T>(opts);
-  }
-  return ref.current;
+  const [api] = useState<UndoStackApi<T>>(() => createUndoStack<T>(opts));
+  return api;
 }

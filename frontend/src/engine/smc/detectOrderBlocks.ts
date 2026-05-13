@@ -567,6 +567,7 @@ function mergeContextOb(
   lastTime: number,
   _options: DetectOrderBlocksOptions,
 ): void {
+  void _options;
   const ob = arr[cand.obIdx]!;
   const key = `${cand.kind}-${ob.timestamp}`;
   if (seen.has(key)) return;

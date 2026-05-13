@@ -106,7 +106,7 @@ export interface RenderSmcOverlayArgs {
   viewport: Viewport;
   overlay: SmcOverlay;
   /** Использовать BSL/SSL вместо EQH/EQL в подписях. */
-  useBslSslLabels?: boolean;
+  useBslSslLabels?: boolean | undefined;
 }
 
 export function renderSmcOverlay({

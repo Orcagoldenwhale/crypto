@@ -57,7 +57,7 @@ export async function fetchRecentKlines5m(
     // TypeError: Failed to fetch / NetworkError / CORS — оборачиваем в
     // понятное сообщение с пометкой что это сетевая проблема.
     const msg = (e as Error).message ?? String(e);
-    throw new Error(`klines network error: ${msg}`);
+    throw new Error(`klines network error: ${msg}`, { cause: e });
   }
   if (!resp.ok) {
     // 429/418/451/418 — пробуем достать тело для диагностики.
@@ -77,7 +77,7 @@ export async function fetchRecentKlines5m(
   try {
     raw = await resp.json();
   } catch (e) {
-    throw new Error(`klines bad JSON: ${(e as Error).message ?? 'parse failed'}`);
+    throw new Error(`klines bad JSON: ${(e as Error).message ?? 'parse failed'}`, { cause: e });
   }
 
   // Binance возвращает ОБЪЕКТ {code:-1121, msg:"Invalid symbol"} вместо массива
