@@ -640,11 +640,23 @@ export default function App() {
           },
           trades_by_zone: computeTradesByZoneType(report.trades),
           smcLayers,
+          smcOpts: {
+            lookback: smcOpts.lookback,
+            equalityTolerancePct: smcOpts.equalityTolerancePct,
+            rbWickRatio: smcOpts.rbWickRatio,
+            rbRequireSweep: smcOpts.rbRequireSweep,
+            rbAlsoAtFvg: smcOpts.rbAlsoAtFvg,
+            rbUseMeanThreshold: smcOpts.rbUseMeanThreshold,
+            obExtraction: smcOpts.obExtraction,
+            obRequireAbsorption: smcOpts.obRequireAbsorption,
+            obSearchAtSweep: smcOpts.obSearchAtSweep,
+            obSearchAtFvg: smcOpts.obSearchAtFvg,
+          },
           merged_settings: merged,
         });
       });
     },
-    [ltfData, smcOverlay, smcOpts.fvgMaxFillPct, symbol, smcLayers, tfPairId],
+    [ltfData, smcOverlay, smcOpts, symbol, smcLayers, tfPairId],
   );
 
   /**
@@ -835,6 +847,18 @@ export default function App() {
           open: report.openTrades,
         },
         trades_by_zone: tradesByZone,
+        smcOpts: {
+          lookback: smcOpts.lookback,
+          equalityTolerancePct: smcOpts.equalityTolerancePct,
+          rbWickRatio: smcOpts.rbWickRatio,
+          rbRequireSweep: smcOpts.rbRequireSweep,
+          rbAlsoAtFvg: smcOpts.rbAlsoAtFvg,
+          rbUseMeanThreshold: smcOpts.rbUseMeanThreshold,
+          obExtraction: smcOpts.obExtraction,
+          obRequireAbsorption: smcOpts.obRequireAbsorption,
+          obSearchAtSweep: smcOpts.obSearchAtSweep,
+          obSearchAtFvg: smcOpts.obSearchAtFvg,
+        },
         merged_settings: merged,
       });
 
