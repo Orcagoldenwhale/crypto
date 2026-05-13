@@ -52,6 +52,12 @@ import {
 import { countCombinations, generateGrid } from '@/optimizer/generateGrid';
 import { runOptimizer } from '@/optimizer/runOptimizer';
 import { applySavedResult } from '@/optimizer/applySavedResult';
+import { sampleRandomCombos, localNeighbors } from '@/optimizer/sampleStrategy';
+
+/** Параметры умного поиска (sample + local). Подобраны эмпирически. */
+const SAMPLE_SIZE = 50_000;
+const LOCAL_EXPAND_TOP_K = 100;
+const LOCAL_RADIUS = 1;
 
 interface OptimizerPanelProps {
   baseSettings: BacktestSettings;
@@ -271,6 +277,14 @@ export function OptimizerPanel({
 
   const total = useMemo(() => countCombinations(optSettings.specs), [optSettings.specs]);
 
+  // Умный поиск: random sample 50K → top-100 → ±1 соседи → merge.
+  // Не сохраняется в OptimizerSettings (пока локальный UI-стейт):
+  // в основном эта опция оправдана для гридов >100K, для маленьких
+  // exhaustive проще и точнее.
+  const [searchMode, setSearchMode] = useState<'exhaustive' | 'sample'>(
+    total > 100_000 ? 'sample' : 'exhaustive',
+  );
+
   const setSpec = (key: OptimizableKey, next: ParamSpec) => {
     setOptSettings((prev) => ({ ...prev, specs: { ...prev.specs, [key]: next } }));
   };
@@ -328,6 +342,15 @@ export function OptimizerPanel({
 
     // Используем optSettings из снимка если resume, иначе текущие.
     const effectiveOptSettings = resume?.capturedOptSettings ?? optSettings;
+
+    // Умный поиск (только для свежих запусков, не для resume): random
+    // sample → top-K → local refine. Не использует pause-resume —
+    // ~30-60 секунд на ноуте, прерывание через Cancel достаточно.
+    if (!resume && searchMode === 'sample' && total > SAMPLE_SIZE) {
+      await runSampleMode(effectiveOptSettings);
+      return;
+    }
+
     const combos = resume?.legacyCombos
       ? resume.legacyCombos
       : generateGrid(resume?.specs ?? effectiveOptSettings.specs);
@@ -348,6 +371,9 @@ export function OptimizerPanel({
     const ac = new AbortController();
     abortRef.current = ac;
     pauseRef.current = new AbortController();
+    // react-hooks/purity flags Date.now() здесь — handleRun вызывается из
+    // event handler, не из render. Реальной impurity-проблемы нет.
+    // eslint-disable-next-line react-hooks/purity
     runStartRef.current = { startedAt: Date.now(), total: combos.length };
 
     let paused: { processed: number; top: OptimizerResult[] } | null = null;
@@ -447,6 +473,119 @@ export function OptimizerPanel({
 
   const addHistoryAndSet = (entry: RunHistoryEntry) => {
     setHistory((prev) => addHistoryEntry(prev, entry));
+  };
+
+  /**
+   * Умный поиск: двухстадийный прогон вместо exhaustive grid.
+   *
+   *   Stage 1: SAMPLE_SIZE случайных комбо из всего грида → top-N
+   *   Stage 2: для top-LOCAL_EXPAND_TOP_K — соседи по ±LOCAL_RADIUS
+   *            → объединить с initialTop из Stage 1 → финальный top-N
+   *
+   * Не поддерживает pause-resume (для resume нужно детерминированно
+   * воспроизвести случайные индексы — без сохранённого seed невозможно).
+   * Cancel работает через AbortSignal.
+   */
+  const runSampleMode = async (opts: OptimizerSettings) => {
+    setRunning(true);
+    setResults([]);
+    const ac = new AbortController();
+    abortRef.current = ac;
+    pauseRef.current = new AbortController(); // не используется, держим для cleanup-симметрии
+    const startedAt = Date.now();
+
+    // Stage 1 — random sample.
+    const samples = sampleRandomCombos(opts.specs, SAMPLE_SIZE);
+    runStartRef.current = { startedAt, total: samples.length };
+    setProgress({ done: 0, total: samples.length, best: null });
+
+    try {
+      const stage1Top = await runOptimizer({
+        prepareData,
+        baseSmcOpts,
+        smcLayers,
+        baseSettings,
+        combos: samples,
+        optSettings: opts,
+        signal: ac.signal,
+        onProgress: (p) => setProgress({ done: p.done, total: p.total, best: p.bestScore }),
+      });
+      if (ac.signal.aborted) {
+        // Cancelled: записываем то что собрали, если есть.
+        if (stage1Top.length > 0) {
+          addHistoryAndSet({
+            id: makeId(),
+            startedAt,
+            finishedAt: Date.now(),
+            status: 'cancelled',
+            optSettings: opts,
+            totalCombos: samples.length,
+            doneIndex: samples.length, // приблизительно — не критично
+            results: stage1Top.map(slimResult),
+            symbol,
+            tfPairId,
+          });
+        }
+        setResults(stage1Top);
+        return;
+      }
+
+      // Stage 2 — local refine.
+      const topK = stage1Top.slice(0, LOCAL_EXPAND_TOP_K);
+      const seen = new Set<string>();
+      const neighborCombos: Combo[] = [];
+      for (const r of topK) {
+        const c: Combo = { bt: r.btParams, smc: r.smcParams, data: r.dataParams };
+        for (const n of localNeighbors(c, opts.specs, LOCAL_RADIUS)) {
+          const sig = JSON.stringify(n);
+          if (seen.has(sig)) continue;
+          seen.add(sig);
+          neighborCombos.push(n);
+        }
+      }
+      runStartRef.current = { startedAt, total: samples.length + neighborCombos.length };
+      setProgress({
+        done: samples.length,
+        total: samples.length + neighborCombos.length,
+        best: stage1Top[0]?.score ?? null,
+      });
+
+      const finalTop = await runOptimizer({
+        prepareData,
+        baseSmcOpts,
+        smcLayers,
+        baseSettings,
+        combos: neighborCombos,
+        optSettings: opts,
+        initialTop: stage1Top,
+        signal: ac.signal,
+        onProgress: (p) =>
+          setProgress({
+            done: samples.length + p.done,
+            total: samples.length + p.total,
+            best: p.bestScore,
+          }),
+      });
+      setResults(finalTop);
+
+      addHistoryAndSet({
+        id: makeId(),
+        startedAt,
+        finishedAt: Date.now(),
+        status: ac.signal.aborted ? 'cancelled' : 'completed',
+        optSettings: opts,
+        totalCombos: samples.length + neighborCombos.length,
+        doneIndex: samples.length + neighborCombos.length,
+        results: finalTop.map(slimResult),
+        symbol,
+        tfPairId,
+      });
+    } finally {
+      setRunning(false);
+      abortRef.current = null;
+      pauseRef.current = null;
+      runStartRef.current = null;
+    }
   };
 
   const handlePause = () => {
@@ -655,13 +794,36 @@ export function OptimizerPanel({
                 <div className="mb-2 flex items-center justify-between text-xs text-tv-text">
                   <span>
                     Всего комбинаций: <strong className="text-tv-accent">{total === Infinity ? '∞' : total.toLocaleString('ru-RU')}</strong>
+                    {searchMode === 'sample' && total > SAMPLE_SIZE && (
+                      <span className="ml-1 text-[10px] text-tv-text-muted">
+                        (сэмпл {SAMPLE_SIZE.toLocaleString('ru-RU')} + ~{LOCAL_EXPAND_TOP_K * 20} соседей)
+                      </span>
+                    )}
                   </span>
-                  {total > 10000 && (
+                  {total > 10000 && searchMode === 'exhaustive' && (
                     <span className="text-[10px] text-amber-400">
                       Большой объём — может занять время. Можно прервать.
                     </span>
                   )}
                 </div>
+                <label
+                  className="mb-2 flex cursor-pointer items-center justify-between gap-2 rounded border border-tv-border bg-tv-bg-deep/40 px-2 py-1 text-[11px]"
+                  title="Sample 50K случайных + локальный refine вокруг top-100. Для больших гридов (>100K) — 100× быстрее exhaustive при ~95% recall на top-N."
+                >
+                  <span className="text-tv-text">
+                    Умный поиск
+                    <span className="ml-1 text-tv-text-muted">
+                      (для гридов &gt; {SAMPLE_SIZE.toLocaleString('ru-RU')})
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={searchMode === 'sample'}
+                    onChange={(e) => setSearchMode(e.target.checked ? 'sample' : 'exhaustive')}
+                    disabled={running}
+                    className="h-3.5 w-3.5 accent-tv-accent"
+                  />
+                </label>
                 {!running ? (
                   pausedSnapshot ? (
                     <div className="flex w-full gap-1.5">

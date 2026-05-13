@@ -65,8 +65,78 @@ export function countCombinations(specs: OptimizerSpecs): number {
 }
 
 /**
+ * Lazy-generator декартова произведения. Не материализует массив —
+ * каждый Combo формируется по запросу и тут же отдаётся consumer'у.
+ * Память O(числа enabled-параметров), не O(числа комбинаций).
+ *
+ * Это ключ к большим гридам (10M+): `generateGrid` строит массив из 10M
+ * объектов = ~2 GB heap = краш браузера. `iterateGrid` крутит счётчик и
+ * yield'ит по одному = константная память.
+ *
+ * Порядок эмиссии: data-параметры самые медленные (внешний цикл), затем
+ * smc, потом bt — это даёт runOptimizer'у cache-friendly последовательность,
+ * можно не сортировать вход.
+ *
+ * Семантика: для тех же specs `iterateGrid` и `generateGrid` отдают
+ * один и тот же ПОДНАБОР комбинаций (порядок может отличаться).
+ */
+export function* iterateGrid(specs: OptimizerSpecs): IterableIterator<Combo> {
+  const entries: { key: OptimizableKey; values: readonly unknown[] }[] = [];
+  for (const key of Object.keys(specs) as OptimizableKey[]) {
+    const arr = expandSpec(specs[key]);
+    if (arr.length > 0) entries.push({ key, values: arr });
+  }
+  if (entries.length === 0) return;
+
+  // data → smc → bt (data самый медленный — outer loop)
+  entries.sort((a, b) => {
+    const rank = (k: OptimizableKey) => (isDataKey(k) ? 0 : isSmcKey(k) ? 1 : 2);
+    return rank(a.key) - rank(b.key);
+  });
+
+  // Odometer-style итерация: indices[i] — текущая позиция в entries[i].values.
+  // Инкремент с переносом разряда; когда выходим за пределы первого
+  // entry — все комбинации перебраны.
+  const indices = new Array<number>(entries.length).fill(0);
+
+  while (true) {
+    // Соберём текущий Combo. Создаётся НОВЫЙ объект на каждой итерации —
+    // это намеренно: consumer может его сохранить (в top-N), и share-by-ref
+    // привёл бы к багу когда следующая итерация мутирует.
+    const combo: Combo = { bt: {}, smc: {}, data: {} };
+    for (let i = 0; i < entries.length; i++) {
+      const e = entries[i]!;
+      const v = e.values[indices[i]!]!;
+      if (isDataKey(e.key)) {
+        const num = typeof v === 'string' ? Number(v) : (v as number);
+        (combo.data as Record<string, unknown>)[e.key] = num;
+      } else if (isSmcKey(e.key)) {
+        (combo.smc as Record<string, unknown>)[e.key] = v;
+      } else {
+        (combo.bt as Record<string, unknown>)[e.key] = v;
+      }
+    }
+    yield combo;
+
+    // Инкремент с переносом: начиная с последнего разряда, +1.
+    // Если переполнился — обнуляем, переносим в предыдущий разряд.
+    let pos = entries.length - 1;
+    while (pos >= 0) {
+      indices[pos]!++;
+      if (indices[pos]! < entries[pos]!.values.length) break;
+      indices[pos] = 0;
+      pos--;
+    }
+    if (pos < 0) return;
+  }
+}
+
+/**
  * Декартово произведение всех включённых параметров. Возвращает
  * массив комбинаций — каждая разнесена по двум объектам {bt, smc}.
+ *
+ * Для больших гридов (>1M комбо) используй `iterateGrid` —
+ * этот метод материализует весь массив в памяти.
  */
 export function generateGrid(specs: OptimizerSpecs): Combo[] {
   const entries: { key: OptimizableKey; values: unknown[] }[] = [];

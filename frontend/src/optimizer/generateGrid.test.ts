@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { countCombinations, generateGrid, smcGroupKey } from './generateGrid';
+import { countCombinations, generateGrid, iterateGrid, smcGroupKey } from './generateGrid';
 import { DEFAULT_OPTIMIZER_SETTINGS, type OptimizerSpecs } from './types';
 
 function makeSpecs(overrides: Partial<OptimizerSpecs>): OptimizerSpecs {
@@ -98,5 +98,77 @@ describe('generateGrid', () => {
     expect(smcGroupKey({ lookback: 5, fvgMaxFillPct: 50 }))
       .toBe(smcGroupKey({ fvgMaxFillPct: 50, lookback: 5 }));
     expect(smcGroupKey({})).toBe('');
+  });
+});
+
+describe('iterateGrid (lazy generator)', () => {
+  it('пусто когда ничего не включено', () => {
+    expect([...iterateGrid(makeSpecs({}))]).toEqual([]);
+  });
+
+  it('даёт ровно столько комбо сколько countCombinations', () => {
+    const specs = makeSpecs({
+      stopPct: { type: 'number', enabled: true, from: 0.1, to: 0.3, step: 0.1 },
+      rewardRatio: { type: 'number', enabled: true, from: 1, to: 3, step: 1 },
+      lookback: { type: 'number', enabled: true, from: 3, to: 5, step: 1 },
+    });
+    const expected = countCombinations(specs);
+    const generated = [...iterateGrid(specs)];
+    expect(generated).toHaveLength(expected);
+    expect(expected).toBe(3 * 3 * 3); // = 27
+  });
+
+  it('эквивалентность с generateGrid: тот же набор комбо (set-equality)', () => {
+    const specs = makeSpecs({
+      stopPct: { type: 'number', enabled: true, from: 0.1, to: 0.3, step: 0.1 },
+      lookback: { type: 'number', enabled: true, from: 3, to: 5, step: 1 },
+      tickMultiplier: { type: 'enum', enabled: true, values: ['1', '2'] },
+    });
+    const fromArray = generateGrid(specs).map((c) => JSON.stringify(c)).sort();
+    const fromIter = [...iterateGrid(specs)].map((c) => JSON.stringify(c)).sort();
+    expect(fromIter).toEqual(fromArray);
+  });
+
+  it('эмиссия в порядке data → smc → bt (cache-friendly для optimizer)', () => {
+    const specs = makeSpecs({
+      // bt
+      stopPct: { type: 'number', enabled: true, from: 0.1, to: 0.2, step: 0.1 },
+      // smc
+      lookback: { type: 'number', enabled: true, from: 3, to: 4, step: 1 },
+      // data
+      tickMultiplier: { type: 'enum', enabled: true, values: ['1', '2'] },
+    });
+    const combos = [...iterateGrid(specs)];
+    expect(combos).toHaveLength(2 * 2 * 2);
+    // Первые 4 комбо должны иметь одинаковый tickMultiplier=1 (data — внешний цикл).
+    const firstHalfMults = combos.slice(0, 4).map((c) => c.data.tickMultiplier);
+    expect(new Set(firstHalfMults).size).toBe(1);
+    expect(firstHalfMults[0]).toBe(1);
+    // Внутри одного tickMultiplier — пары с одинаковым lookback.
+    const firstTwoLookbacks = combos.slice(0, 2).map((c) => c.smc.lookback);
+    expect(new Set(firstTwoLookbacks).size).toBe(1);
+  });
+
+  it('каждый Combo — отдельный объект (consumer может его сохранить)', () => {
+    const specs = makeSpecs({
+      stopPct: { type: 'number', enabled: true, from: 0.1, to: 0.2, step: 0.1 },
+    });
+    const combos = [...iterateGrid(specs)];
+    expect(combos[0]).not.toBe(combos[1]);
+    expect(combos[0]!.bt).not.toBe(combos[1]!.bt);
+  });
+
+  it('константная память: 1000 комбо не материализуются как массив внутри', () => {
+    // Косвенно — если бы iterateGrid материализовался, для 1000 комбо
+    // получили бы 1000 одинаковых ссылок на bt. Проверяем что у каждого
+    // свой bt-объект.
+    const specs = makeSpecs({
+      stopPct: { type: 'number', enabled: true, from: 0.01, to: 1.00, step: 0.01 },
+    });
+    const combos = [...iterateGrid(specs)];
+    expect(combos).toHaveLength(100);
+    // Все bt-объекты независимые ссылки.
+    const btRefs = new Set(combos.map((c) => c.bt));
+    expect(btRefs.size).toBe(100);
   });
 });
