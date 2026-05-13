@@ -52,6 +52,7 @@ import {
   saveSmcOptions,
 } from '@/data/smcPreference';
 import { runSmcAnalysis } from '@/engine/smc';
+import { computeOverlayKindStats, computeTradesByZoneType } from '@/engine/smc/overlayStats';
 import { EMPTY_SMC_OVERLAY, type SmcLayers, type SmcOptions } from '@/engine/smc/types';
 import { SmcSettingsPopover } from '@/components/SmcSettingsPopover';
 import { BacktestPanel } from '@/components/BacktestPanel';
@@ -628,6 +629,7 @@ export default function App() {
             liquidity: smcOverlay.liquidity.length,
             structure: smcOverlay.structure.length,
           },
+          overlay_by_kind: computeOverlayKindStats(smcOverlay),
           trades: {
             total: report.totalTrades,
             long: longTrades,
@@ -636,6 +638,7 @@ export default function App() {
             losses: report.losses,
             open: report.openTrades,
           },
+          trades_by_zone: computeTradesByZoneType(report.trades),
           smcLayers,
           merged_settings: merged,
         });
@@ -794,6 +797,8 @@ export default function App() {
       const bullZones = zones.filter((z) => z.fvgKind === 'bull' || z.obKind === 'bull').length;
       const bearZones = zones.filter((z) => z.fvgKind === 'bear' || z.obKind === 'bear').length;
       const neutralZones = zones.length - bullZones - bearZones;
+      const overlayByKind = computeOverlayKindStats(overlay);
+      const tradesByZone = computeTradesByZoneType(report.trades);
       devLog('extended:run', {
         candleCount,
         ltfTf,
@@ -820,6 +825,7 @@ export default function App() {
           liquidity: overlay.liquidity.length,
           structure: overlay.structure.length,
         },
+        overlay_by_kind: overlayByKind,
         trades: {
           total: report.totalTrades,
           long: longTrades,
@@ -828,6 +834,7 @@ export default function App() {
           losses: report.losses,
           open: report.openTrades,
         },
+        trades_by_zone: tradesByZone,
         merged_settings: merged,
       });
 
