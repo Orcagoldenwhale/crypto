@@ -131,6 +131,9 @@ const PARAM_LABELS: Record<OptimizableKey, string> = {
   rbUseMeanThreshold: 'Учитывать MT для RB',
   // Liquidity
   equalityTolerancePct: 'Допуск равенства цен (доля)',
+  liqShowExternal: 'Liq external (за range)',
+  liqShowInternal: 'Liq internal (внутри range)',
+  liqShowPrevDay: 'PDH / PDL (предыдущий день)',
   liqShowCompression: 'Compression-серии',
   liqCompressionMinPoints: 'Compression: мин. точек',
 };
@@ -182,9 +185,13 @@ const SECTIONS: SectionConfig[] = [
   {
     title: 'SMC: Liquidity / структура',
     // equalityTolerancePct влияет на свинги (lookback) → нужен для OB / RB /
-    // Liquidity всегда. Compression — только при включённом Liquidity-слое.
+    // Liquidity всегда. liq* — только при включённом Liquidity-слое.
     visible: () => true,
-    keys: ['equalityTolerancePct', 'liqShowCompression', 'liqCompressionMinPoints'],
+    keys: [
+      'equalityTolerancePct',
+      'liqShowExternal', 'liqShowInternal', 'liqShowPrevDay',
+      'liqShowCompression', 'liqCompressionMinPoints',
+    ],
   },
   {
     title: 'Данные',

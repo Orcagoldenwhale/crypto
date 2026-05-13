@@ -72,6 +72,9 @@ export type SmcKey =
   | 'rbRequireSweep'
   | 'rbAlsoAtFvg'
   | 'rbUseMeanThreshold'
+  | 'liqShowExternal'
+  | 'liqShowInternal'
+  | 'liqShowPrevDay'
   | 'liqShowCompression'
   | 'liqCompressionMinPoints';
 
@@ -98,6 +101,9 @@ export const SMC_KEYS: ReadonlySet<SmcKey> = new Set<SmcKey>([
   'rbRequireSweep',
   'rbAlsoAtFvg',
   'rbUseMeanThreshold',
+  'liqShowExternal',
+  'liqShowInternal',
+  'liqShowPrevDay',
   'liqShowCompression',
   'liqCompressionMinPoints',
 ]);
@@ -186,6 +192,9 @@ export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
     rbAlsoAtFvg: { type: 'bool', enabled: false, bothValues: true },
     rbUseMeanThreshold: { type: 'bool', enabled: false, bothValues: true },
     // ===== SMC: Liquidity =====
+    liqShowExternal: { type: 'bool', enabled: false, bothValues: true },
+    liqShowInternal: { type: 'bool', enabled: false, bothValues: true },
+    liqShowPrevDay: { type: 'bool', enabled: false, bothValues: true },
     liqShowCompression: { type: 'bool', enabled: false, bothValues: true },
     liqCompressionMinPoints: { type: 'number', enabled: false, from: 2, to: 5, step: 1 },
     // ===== Данные =====
