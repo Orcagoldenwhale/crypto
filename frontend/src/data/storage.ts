@@ -19,12 +19,20 @@ const DB_NAME = 'smc-backtester';
  *   v2 — добавляет store 'visionDays' (кэш aggTrades-агрегатов).
  *   v3 — добавляет 'liveTail' (закрытые live-свечи) и 'liveMeta'
  *        (`lastAggTradeId` для gap recovery после reload).
+ *   v4 — добавляет 'extendedDatasets' (готовые pre-regrouped 5m свечи
+ *        для расширенного бэктеста; ключ symbol+days+mult).
+ *   v5 — инвалидирует 'visionDays' и 'extendedDatasets': до 1.37.3 парсер
+ *        Vision сохранял свечи с μs-timestamps (год +058332) для символов,
+ *        где Binance мигрировал CSV-формат. Чистим кэш — на следующем
+ *        прогоне перекачается правильно. Зоны (`poi`) и live-свечи не
+ *        задеты.
  */
-const DB_VERSION = 3;
+const DB_VERSION = 5;
 const STORE_POI = 'poi';
 const STORE_VISION = 'visionDays';
 const STORE_LIVE_TAIL = 'liveTail';
 const STORE_LIVE_META = 'liveMeta';
+const STORE_EXTENDED = 'extendedDatasets';
 
 interface SmcDB extends DBSchema {
   poi: {
@@ -66,6 +74,19 @@ interface SmcDB extends DBSchema {
       updatedAt: number;
     };
   };
+  extendedDatasets: {
+    /** Ключ — `${symbol}:${days}:${mult}` (например `BTCUSDT:174:1`). */
+    key: string;
+    value: {
+      key: string;
+      symbol: string;
+      days: number;
+      mult: number;
+      /** Готовые pre-regrouped 5m свечи с кластерами. */
+      candles: Candle5m[];
+      cachedAt: number;
+    };
+  };
 }
 
 let dbPromise: Promise<IDBPDatabase<SmcDB>> | null = null;
@@ -87,6 +108,22 @@ function getDB(): Promise<IDBPDatabase<SmcDB>> {
           if (!db.objectStoreNames.contains(STORE_LIVE_META)) {
             db.createObjectStore(STORE_LIVE_META, { keyPath: 'symbol' });
           }
+        }
+        if (oldVersion < 4 && !db.objectStoreNames.contains(STORE_EXTENDED)) {
+          db.createObjectStore(STORE_EXTENDED, { keyPath: 'key' });
+        }
+        if (oldVersion < 5) {
+          // Битые μs-timestamp данные — drop+recreate чистит весь кэш Vision.
+          // На следующем прогоне юзер скачает заново (минуты на BTC 7д,
+          // часы на BNB 35д — но получит корректные даты и сделки).
+          if (db.objectStoreNames.contains(STORE_VISION)) {
+            db.deleteObjectStore(STORE_VISION);
+          }
+          db.createObjectStore(STORE_VISION, { keyPath: 'key' });
+          if (db.objectStoreNames.contains(STORE_EXTENDED)) {
+            db.deleteObjectStore(STORE_EXTENDED);
+          }
+          db.createObjectStore(STORE_EXTENDED, { keyPath: 'key' });
         }
       },
     });
@@ -167,6 +204,62 @@ export async function saveVisionDay(
     });
   } catch (e) {
     console.warn('[storage] saveVisionDay failed:', e);
+  }
+}
+
+// ============================================================================
+// Extended datasets — pre-regrouped полные выборки для расширенного бэктеста
+//
+// Зачем отдельный store, если уже есть `visionDays`: `visionDays` хранит сырые
+// 5m свечи по дням. Чтобы получить готовый Candle5m[] на N дней, нужно
+// прочитать M записей (по дню каждая) + сделать regroupCandles. На 174 днях
+// это 10-30 сек чистого IndexedDB-read'а. Здесь же — один read, мгновенно.
+//
+// Размер: 50k свечей × ~5KB на свечу (~50 кластеров) ≈ 250 MB. Может упереться
+// в quota — операция graceful: writes ловят ошибку и логируют warn, дальше
+// просто фолбэк на medlennый путь.
+// ============================================================================
+
+function extendedKey(symbol: string, days: number, mult: number): string {
+  return `${symbol}:${days}:${mult}`;
+}
+
+/** Загружает готовый pre-regrouped датасет. Возвращает null если кэша нет. */
+export async function loadExtendedDataset(
+  symbol: string,
+  days: number,
+  mult: number,
+): Promise<Candle5m[] | null> {
+  try {
+    const db = await getDB();
+    const record = await db.get(STORE_EXTENDED, extendedKey(symbol, days, mult));
+    return record?.candles ?? null;
+  } catch (e) {
+    console.warn('[storage] loadExtendedDataset failed:', e);
+    return null;
+  }
+}
+
+/** Сохраняет готовый pre-regrouped датасет. */
+export async function saveExtendedDataset(
+  symbol: string,
+  days: number,
+  mult: number,
+  candles: readonly Candle5m[],
+): Promise<void> {
+  try {
+    const db = await getDB();
+    await db.put(STORE_EXTENDED, {
+      key: extendedKey(symbol, days, mult),
+      symbol,
+      days,
+      mult,
+      candles: candles as Candle5m[],
+      cachedAt: Date.now(),
+    });
+  } catch (e) {
+    // Quota exceeded — не критично, в следующий раз пересчитаем из daily-cache.
+    console.warn('[storage] saveExtendedDataset failed (quota?):', e);
   }
 }
 

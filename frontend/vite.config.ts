@@ -41,6 +41,42 @@ export default defineConfig({
         });
       },
     },
+    {
+      // Универсальный dev-канал: фронт постит JSON, мы аппендим в файл.
+      // Файл `dev-log.txt` нужен для отладки в паре с AI-ассистентом —
+      // он читает файл напрямую вместо browser-console copy/paste.
+      // POST /api/dev-log     — append одной JSON-строки
+      // DELETE /api/dev-log   — очистить файл
+      name: 'dev-log-writer',
+      configureServer(server) {
+        const logPath = path.resolve(__dirname, 'dev-log.txt');
+        server.middlewares.use((req, res, next) => {
+          if (req.url !== '/api/dev-log') {
+            next();
+            return;
+          }
+          if (req.method === 'DELETE') {
+            try { fs.writeFileSync(logPath, ''); } catch { /* ignore */ }
+            res.writeHead(200);
+            res.end('cleared');
+            return;
+          }
+          if (req.method === 'POST') {
+            const chunks: Buffer[] = [];
+            req.on('data', (c: Buffer) => chunks.push(c));
+            req.on('end', () => {
+              const body = Buffer.concat(chunks).toString('utf-8');
+              // Каждая запись — одна строка JSON (NDJSON-формат).
+              fs.appendFileSync(logPath, body.replace(/\n/g, ' ') + '\n');
+              res.writeHead(200);
+              res.end('ok');
+            });
+            return;
+          }
+          next();
+        });
+      },
+    },
   ],
   define: {
     // ISO-8601 момент старта Vite. Подставляется как литерал в каждом импорте version.ts.

@@ -240,8 +240,10 @@ interface CandleAcc {
 /**
  * Потоковый парсинг CSV без хранения всех тиков в памяти.
  * Прогресс-callback дёргается каждые ~100 000 строк.
+ *
+ * Экспортирован для unit-тестов (in-memory CSV → массив 5m свечей).
  */
-function aggregateCsvToCandles(
+export function aggregateCsvToCandles(
   csv: string,
   tickSize: number,
   onProgress: (ticks: number) => void,
@@ -320,7 +322,14 @@ function parseLineInto(
 
   q = line.indexOf(',', p);
   if (q < 0) return;
-  const ts = parseInt(line.substring(p, q), 10);
+  const tsRaw = parseInt(line.substring(p, q), 10);
+  // Binance в новых aggTrades CSV для ряда символов (BNBUSDT и др.) перешёл
+  // на МИКРОсекундные timestamp'ы — поле в файле всё ещё называется
+  // `timestamp_ms`, но содержит μs. Без нормализации `ts / MS_5M` улетает на
+  // годы +5x000, каждый трейд становится отдельной «свечой», и за 35 дней
+  // мы получаем 2.7M записей вместо 10080. Порог 1e14 ms = year 5138 — заведомо
+  // не реальный ms-диапазон, значит это μs → делим на 1000.
+  const ts = tsRaw > 1e14 ? Math.floor(tsRaw / 1000) : tsRaw;
   p = q + 1;
 
   q = line.indexOf(',', p);

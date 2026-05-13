@@ -18,8 +18,14 @@
  */
 
 import { useState, type ReactNode } from 'react';
-import { Play, Settings2, ChevronUp, ChevronDown } from 'lucide-react';
+import { Play, Settings2, ChevronUp, ChevronDown, Zap, X } from 'lucide-react';
 import type { BacktestSettings, BacktestReport } from '@/backtest/types';
+import {
+  EXTENDED_CANDLE_OPTIONS,
+  daysForCandles,
+  type ExtendedCandleCount,
+  type ExtendedProgress,
+} from './BacktestPanelExtended';
 
 interface BacktestPanelProps {
   settings: BacktestSettings;
@@ -27,10 +33,39 @@ interface BacktestPanelProps {
   onRun: (settings: BacktestSettings) => void;
   report: BacktestReport | null;
   running: boolean;
+  /**
+   * Запуск расширенного бэктеста на N свечей (например 50 000).
+   * Параметры берутся из текущих settings; данные подгружаются отдельно
+   * из Vision (потому что кластерные правила входа требуют именно Vision).
+   */
+  onRunExtended: (settings: BacktestSettings, candleCount: ExtendedCandleCount) => void;
+  /** Текущий отчёт расширенного бэктеста (null если ещё не гоняли). */
+  extendedReport: BacktestReport | null;
+  /** true пока идёт загрузка/прогон расширенного. */
+  extendedRunning: boolean;
+  /** Прогресс расширенного бэктеста (null если не идёт). */
+  extendedProgress: ExtendedProgress | null;
+  /** Сколько свечей в текущем extendedReport (для подписи). */
+  extendedCandleCount: ExtendedCandleCount | null;
+  /** Отменить идущий расширенный бэктест. */
+  onCancelExtended: () => void;
 }
 
-export function BacktestPanel({ settings, onSettingsChange, onRun, report, running }: BacktestPanelProps) {
+export function BacktestPanel({
+  settings,
+  onSettingsChange,
+  onRun,
+  report,
+  running,
+  onRunExtended,
+  extendedReport,
+  extendedRunning,
+  extendedProgress,
+  extendedCandleCount,
+  onCancelExtended,
+}: BacktestPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const [extendedCount, setExtendedCount] = useState<ExtendedCandleCount>(50000);
 
   const update = <K extends keyof BacktestSettings>(key: K, value: BacktestSettings[K]) => {
     onSettingsChange({ ...settings, [key]: value });
@@ -179,7 +214,53 @@ export function BacktestPanel({ settings, onSettingsChange, onRun, report, runni
             </button>
           </div>
 
-          {report && <BacktestReportView report={report} />}
+          {/* Расширенный бэктест на большое окно (Vision-данные с кластерами) */}
+          <div className="border-t border-tv-border px-3 py-2">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-tv-text-muted">
+                Расширенный бэктест
+              </span>
+              <select
+                value={extendedCount}
+                onChange={(e) => setExtendedCount(Number(e.target.value) as ExtendedCandleCount)}
+                disabled={extendedRunning}
+                className="rounded border border-tv-border bg-tv-bg-deep px-1.5 py-0.5 text-[10px] text-white outline-none focus:border-tv-accent disabled:opacity-40"
+                title="Сколько 5m-свечей подгрузить из Vision и прогнать на текущих настройках"
+              >
+                {EXTENDED_CANDLE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n.toLocaleString('ru-RU')} (~{daysForCandles(n)}д)
+                  </option>
+                ))}
+              </select>
+            </div>
+            {extendedRunning ? (
+              <ExtendedProgressBar
+                progress={extendedProgress}
+                onCancel={onCancelExtended}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => onRunExtended(settings, extendedCount)}
+                disabled={running}
+                className="flex w-full items-center justify-center gap-1.5 rounded border border-tv-accent/40 bg-tv-accent/15 px-3 py-1 text-[11px] font-semibold text-tv-accent transition-colors hover:bg-tv-accent/30 disabled:opacity-50"
+                title={`Прогнать на ${extendedCount.toLocaleString('ru-RU')} свечей с текущими настройками. Vision aggTrades — кэшируется по дням.`}
+              >
+                <Zap className="h-3 w-3" />
+                Прогнать {extendedCount.toLocaleString('ru-RU')} свечей
+              </button>
+            )}
+          </div>
+
+          {report && <BacktestReportView report={report} title="Бэктест на текущей выборке" />}
+          {extendedReport && extendedCandleCount !== null && (
+            <BacktestReportView
+              report={extendedReport}
+              title={`Расширенный: ${extendedCandleCount.toLocaleString('ru-RU')} свечей (~${daysForCandles(extendedCandleCount)}д)`}
+              accent
+            />
+          )}
         </div>
       )}
 
@@ -314,10 +395,23 @@ function Select({
   );
 }
 
-function BacktestReportView({ report }: { report: BacktestReport }) {
+function BacktestReportView({
+  report,
+  title,
+  accent,
+}: {
+  report: BacktestReport;
+  title?: string;
+  accent?: boolean;
+}) {
   const wr = (report.winRate * 100).toFixed(1);
   return (
-    <div className="border-t border-tv-border px-3 py-2">
+    <div className={`border-t px-3 py-2 ${accent ? 'border-tv-accent/40 bg-tv-accent/5' : 'border-tv-border'}`}>
+      {title && (
+        <div className={`mb-1 text-[10px] font-semibold uppercase tracking-wider ${accent ? 'text-tv-accent' : 'text-tv-text-muted'}`}>
+          {title}
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
         <StatLine label="Сделок" value={String(report.totalTrades)} />
         <StatLine
@@ -355,5 +449,52 @@ function StatLine({ label, value, color }: { label: string; value: string; color
       <span className="text-tv-text-dim">{label}</span>
       <span className={`text-right font-mono ${color ?? 'text-white'}`}>{value}</span>
     </>
+  );
+}
+
+/**
+ * Прогресс расширенного бэктеста — две стадии:
+ *   1) loading: качаем/парсим Vision-дни (есть прогресс N/total)
+ *   2) computing: считаем overlay + бэктест (короткая, без числового прогресса)
+ */
+function ExtendedProgressBar({
+  progress,
+  onCancel,
+}: {
+  progress: ExtendedProgress | null;
+  onCancel: () => void;
+}) {
+  const pct = progress?.stage === 'loading' && progress.total && progress.total > 0
+    ? Math.min(100, Math.round(((progress.loaded ?? 0) / progress.total) * 100))
+    : null;
+  const stageLabel = progress?.stage === 'computing'
+    ? 'Считаем overlay + бэктест…'
+    : 'Загрузка Vision';
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-center justify-between text-[10px] text-tv-text-muted">
+        <span>{stageLabel}{progress?.label ? ` · ${progress.label}` : ''}</span>
+        <button
+          type="button"
+          onClick={onCancel}
+          title="Отменить расширенный бэктест"
+          className="flex items-center gap-1 rounded border border-tv-border px-1.5 py-0.5 text-[10px] text-tv-text-muted hover:bg-red-500 hover:text-white"
+        >
+          <X className="h-2.5 w-2.5" />
+          Отмена
+        </button>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded bg-tv-bg-deep">
+        <div
+          className={`h-full ${pct !== null ? 'bg-tv-accent' : 'animate-pulse bg-tv-accent/60'}`}
+          style={pct !== null ? { width: `${pct}%` } : { width: '100%' }}
+        />
+      </div>
+      {pct !== null && progress?.total !== undefined && (
+        <div className="text-right text-[9px] text-tv-text-muted">
+          {progress.loaded ?? 0} / {progress.total} ({pct}%)
+        </div>
+      )}
+    </div>
   );
 }

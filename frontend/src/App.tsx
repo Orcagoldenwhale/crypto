@@ -24,7 +24,8 @@ import {
 import { fetchBinanceKlines } from '@/data/binanceLoader';
 import { fetchVisionDataset, type ProgressInfo } from '@/data/visionLoader';
 import { loadDatasetFromFile, loadDatasetFromUrl } from '@/data/datasetLoader';
-import { loadPOIs, savePOIs } from '@/data/storage';
+import { loadPOIs, savePOIs, loadExtendedDataset, saveExtendedDataset } from '@/data/storage';
+import { devLog, devLogClear } from '@/dev/devLog';
 import {
   createLiveCandleManager,
   type LiveCandleManager,
@@ -53,6 +54,11 @@ import { runSmcAnalysis } from '@/engine/smc';
 import { EMPTY_SMC_OVERLAY, type SmcLayers, type SmcOptions } from '@/engine/smc/types';
 import { SmcSettingsPopover } from '@/components/SmcSettingsPopover';
 import { BacktestPanel } from '@/components/BacktestPanel';
+import {
+  daysForCandles,
+  type ExtendedCandleCount,
+  type ExtendedProgress,
+} from '@/components/BacktestPanelExtended';
 import { OptimizerPanel } from '@/components/OptimizerPanel';
 import { HelpModal } from '@/components/HelpModal';
 import { runBacktest, collectZones, type SmcZoneRect } from '@/backtest/runBacktest';
@@ -187,6 +193,15 @@ export default function App() {
   const [backtestZones, setBacktestZones] = useState<SmcZoneRect[]>([]);
   const [backtestSettings, setBacktestSettings] = useState<BacktestSettings>(DEFAULT_BACKTEST_SETTINGS);
 
+  // Расширенный бэктест — отдельное состояние, не пересекается с обычным.
+  // Данные загружаются по запросу, кэшируются в ref'е по ключу symbol+days+mult.
+  const [extendedReport, setExtendedReport] = useState<BacktestReportData | null>(null);
+  const [extendedRunning, setExtendedRunning] = useState(false);
+  const [extendedProgress, setExtendedProgress] = useState<ExtendedProgress | null>(null);
+  const [extendedCandleCount, setExtendedCandleCount] = useState<ExtendedCandleCount | null>(null);
+  const extendedAbortRef = useRef<AbortController | null>(null);
+  const extendedCacheRef = useRef<Map<string, readonly Candle5m[]>>(new Map());
+
   // ============================================================================
   // Live-режим (real-time aggTrades с Binance, см. docs/04-live-mode.md)
   // ============================================================================
@@ -307,6 +322,11 @@ export default function App() {
 
     let cancelled = false;
     const ac = new AbortController();
+    // setState ниже сбрасывают stale-данные предыдущего символа — это и есть
+    // синхронизация с внешним идентификатором (symbol). React 19's
+    // `react-hooks/set-state-in-effect` ругается на любой setState в useEffect,
+    // но именно этот сценарий — корректный.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setStatus({
       kind: 'loading',
       loaded: 0,
@@ -575,6 +595,179 @@ export default function App() {
     [ltfData, smcOverlay, smcOpts.fvgMaxFillPct, symbol],
   );
 
+  /**
+   * Расширенный бэктест: загружает N свечей из Vision (с кластерами) и
+   * прогоняет один backtest с текущими настройками. Три уровня кэша
+   * (быстрый → медленный):
+   *   1) extendedCacheRef — in-memory, текущая сессия.
+   *   2) IndexedDB store `extendedDatasets` — pre-regrouped, один read.
+   *   3) IndexedDB store `visionDays` + Vision-сеть — daily-cache + fetch.
+   * Klines не используем — кластерные правила входа (`checkSignal`) дадут
+   * 0 сделок без real-кластерных полей.
+   */
+  const handleRunExtended = useCallback(
+    async (settings: BacktestSettings, candleCount: ExtendedCandleCount) => {
+      const days = daysForCandles(candleCount);
+      const cacheKey = `${symbol}-${days}-${effectiveMultiplier}`;
+      extendedAbortRef.current?.abort();
+      const ac = new AbortController();
+      extendedAbortRef.current = ac;
+      setExtendedRunning(true);
+      setExtendedReport(null);
+      setExtendedProgress({ stage: 'loading', loaded: 0, total: days });
+      // Очищаем dev-log в начале прогона — каждый запуск = свой контекст
+      // для диагностики.
+      devLogClear();
+      devLog('extended-bt:start', {
+        candleCount,
+        days,
+        symbol,
+        effectiveMultiplier,
+        ltfTf,
+        htfTf,
+        isSingleTf,
+        smcLayers,
+      });
+
+      let raw5m: readonly Candle5m[] | null = null;
+
+      // Уровень 1: in-memory кэш сессии.
+      const memCached = extendedCacheRef.current.get(cacheKey);
+      if (memCached) {
+        raw5m = memCached;
+      }
+
+      // Уровень 2: pre-regrouped датасет в IndexedDB — один read, мгновенно.
+      if (raw5m === null) {
+        setExtendedProgress({ stage: 'loading', loaded: 0, total: days, label: 'из кэша…' });
+        const persisted = await loadExtendedDataset(symbol, days, effectiveMultiplier);
+        if (ac.signal.aborted) {
+          setExtendedProgress(null);
+          setExtendedRunning(false);
+          extendedAbortRef.current = null;
+          return;
+        }
+        if (persisted && persisted.length > 0) {
+          raw5m = persisted;
+          extendedCacheRef.current.set(cacheKey, raw5m);
+        }
+      }
+
+      // Уровень 3: качаем из Vision (с подневным кэшем под капотом).
+      if (raw5m === null) {
+        try {
+          const dataset = await fetchVisionDataset({
+            symbol,
+            days,
+            signal: ac.signal,
+            onProgress: (info: ProgressInfo) => {
+              setExtendedProgress({
+                stage: 'loading',
+                loaded: info.dayIndex,
+                total: info.daysTotal,
+                label: `${info.date} (${info.stage})`,
+              });
+            },
+          });
+          raw5m = regroupCandles(dataset.candles, effectiveMultiplier);
+          extendedCacheRef.current.set(cacheKey, raw5m);
+          // Сохраняем pre-regrouped датасет в IndexedDB — fire-and-forget.
+          // Следующий запуск (даже после reload страницы) пойдёт через level 2.
+          void saveExtendedDataset(symbol, days, effectiveMultiplier, raw5m);
+        } catch (e) {
+          if ((e as { name?: string }).name === 'AbortError') {
+            setExtendedProgress(null);
+            setExtendedRunning(false);
+            extendedAbortRef.current = null;
+            return;
+          }
+          setExtendedProgress(null);
+          setExtendedRunning(false);
+          extendedAbortRef.current = null;
+          window.alert(`Не удалось загрузить расширенную историю: ${(e as Error).message}`);
+          return;
+        }
+      }
+
+      if (raw5m === null || ac.signal.aborted) {
+        setExtendedProgress(null);
+        setExtendedRunning(false);
+        extendedAbortRef.current = null;
+        return;
+      }
+
+      setExtendedProgress({ stage: 'computing' });
+      // Берём ровно последние candleCount свечей: загружено может быть чуть больше,
+      // т.к. days считается с округлением вверх.
+      const trimmed = raw5m.length > candleCount ? raw5m.slice(-candleCount) : raw5m;
+
+      // Применяем агрегацию под текущий ltfTf. Для HTF — тот же датасет,
+      // агрегированный до htfTf; в single-режиме HTF == LTF.
+      const ltf: readonly Candle5m[] = ltfTf === '5m'
+        ? trimmed
+        : ltfTf === '15m'
+          ? aggregate5mTo15mLtf(trimmed)
+          : aggregate5mTo1hLtf(trimmed);
+      const smcCandles = isSingleTf
+        ? ltf
+        : (htfTf === '1h' ? aggregate5mTo1hLtf(trimmed) : aggregate5mTo15mLtf(trimmed));
+
+      // Сдвигаем тяжёлое в next-frame, чтобы прогресс-бар успел обновиться
+      // на "computing" перед блокировкой UI на overlay+backtest.
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      if (ac.signal.aborted) {
+        setExtendedProgress(null);
+        setExtendedRunning(false);
+        extendedAbortRef.current = null;
+        return;
+      }
+
+      const merged = { ...settings, fvgMaxFillPct: smcOpts.fvgMaxFillPct, debugLog: false };
+      const overlay = runSmcAnalysis(smcCandles, smcLayers, smcOpts);
+      const report = runBacktest(ltf as Candle5m[], overlay, merged);
+
+      // Диагностика → frontend/dev-log.txt, читается ассистентом напрямую.
+      devLog('extended-bt:result', {
+        candleCount,
+        ltfTf,
+        htfTf,
+        isSingleTf,
+        loaded_5m: raw5m.length,
+        trimmed_5m: trimmed.length,
+        ltf_len: ltf.length,
+        smcCandles_len: smcCandles.length,
+        first_ltf_ts: ltf[0]?.timestamp ? new Date(ltf[0].timestamp).toISOString() : null,
+        last_ltf_ts: ltf[ltf.length - 1]?.timestamp ? new Date(ltf[ltf.length - 1]!.timestamp).toISOString() : null,
+        ltf_has_clusters: ltf[0]?.clusters?.length ?? 0,
+        ltf_has_delta: ltf[0]?.delta,
+        ltf_vpoc: ltf[0]?.vpoc_price,
+        smcCandles_first_ts: smcCandles[0]?.timestamp ? new Date(smcCandles[0].timestamp).toISOString() : null,
+        smcLayers,
+        overlay_counts: {
+          fvgs: overlay.fvgs.length,
+          orderBlocks: overlay.orderBlocks.length,
+          breakerBlocks: overlay.breakerBlocks.length,
+          rejectionBlocks: overlay.rejectionBlocks.length,
+          liquidity: overlay.liquidity.length,
+          structure: overlay.structure.length,
+        },
+        trades: report.totalTrades,
+        merged_settings: merged,
+      });
+
+      setExtendedReport(report);
+      setExtendedCandleCount(candleCount);
+      setExtendedProgress(null);
+      setExtendedRunning(false);
+      extendedAbortRef.current = null;
+    },
+    [symbol, effectiveMultiplier, ltfTf, htfTf, isSingleTf, smcLayers, smcOpts],
+  );
+
+  const handleCancelExtended = useCallback(() => {
+    extendedAbortRef.current?.abort();
+  }, []);
+
   // ============================================================================
   // Live-режим: старт/стоп, авто-остановка при смене символа.
   //
@@ -756,6 +949,9 @@ export default function App() {
   // как их визуализировать пользователю.
   useEffect(() => {
     if (!liveActive) {
+      // Чистим устаревшую статистику при выключении live — это синхронизация
+      // с внешним переключателем, корректный setState в useEffect.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLiveStats(null);
       return;
     }
@@ -1411,6 +1607,12 @@ export default function App() {
             onRun={handleRunBacktest}
             report={backtestReport}
             running={backtestRunning}
+            onRunExtended={handleRunExtended}
+            extendedReport={extendedReport}
+            extendedRunning={extendedRunning}
+            extendedProgress={extendedProgress}
+            extendedCandleCount={extendedCandleCount}
+            onCancelExtended={handleCancelExtended}
           />
         )}
 
@@ -1421,7 +1623,11 @@ export default function App() {
             baseSmcOpts={smcOpts}
             smcLayers={smcLayers}
             prepareData={(mult) => {
-              const m = mult ?? effectiveMultiplier;
+              // mult приходит как `number | undefined` (контракт оптимизатора),
+              // но реальные значения всегда из набора TickMultiplier (1/2/5/10) —
+              // их перебирает грид оптимизатора. Кастуем для совместимости с
+              // regroupCandles, который требует литеральный тип.
+              const m: TickMultiplier = (mult ?? effectiveMultiplier) as TickMultiplier;
               const d5m = regroupCandles(rawData5mWithLive, m);
               const ltf = ltfTf === '5m'
                 ? d5m
@@ -1448,6 +1654,8 @@ export default function App() {
               if (mult === undefined) return;
               setTickPref({ manual: mult });
             }}
+            symbol={symbol}
+            tfPairId={tfPairId}
           />
         )}
 
