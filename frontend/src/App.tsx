@@ -25,7 +25,7 @@ import { fetchBinanceKlines } from '@/data/binanceLoader';
 import { fetchVisionDataset, type ProgressInfo } from '@/data/visionLoader';
 import { loadDatasetFromFile, loadDatasetFromUrl } from '@/data/datasetLoader';
 import { loadPOIs, savePOIs, loadExtendedDataset, saveExtendedDataset } from '@/data/storage';
-import { devLog, devLogClear } from '@/dev/devLog';
+import { devLog } from '@/dev/devLog';
 import { alignTrimForHtf } from '@/data/extendedTrim';
 import {
   createLiveCandleManager,
@@ -91,6 +91,7 @@ import type {
   ScannerWorkerResponse,
 } from '@/scanner/scannerWorker';
 import { runScanner as runScannerSync } from '@/scanner/runScanner';
+import { checkSignal } from '@/scanner/checkSignal';
 
 /** Сколько свечей LTF слева/справа при «перейти на младший» из зоны. */
 const LTF_CONTEXT_CANDLES = 9;
@@ -593,9 +594,54 @@ export default function App() {
         setBacktestZones(zones);
         setBacktestReport(report);
         setBacktestRunning(false);
+
+        // Диагностика: каждый прогон регулярного бэктеста пишется в dev-log.
+        // Полезно когда сделки не сходятся с ожидаемыми — сразу видно
+        // сколько LONG/SHORT сигналов, какие зоны, какие настройки.
+        let longSignals = 0;
+        let shortSignals = 0;
+        for (const c of ltfData) {
+          const s = checkSignal(c);
+          if (s.type === 'LONG') longSignals++;
+          else if (s.type === 'SHORT') shortSignals++;
+        }
+        const longTrades = report.trades.filter((t) => t.type === 'LONG').length;
+        const shortTrades = report.trades.filter((t) => t.type === 'SHORT').length;
+        const bullZones = zones.filter((z) => z.fvgKind === 'bull' || z.obKind === 'bull').length;
+        const bearZones = zones.filter((z) => z.fvgKind === 'bear' || z.obKind === 'bear').length;
+        const neutralZones = zones.length - bullZones - bearZones;
+        devLog('backtest:run', {
+          symbol,
+          tfPairId,
+          ltfDataLen: ltfData.length,
+          first_ts: ltfData[0]?.timestamp ? new Date(ltfData[0]!.timestamp).toISOString() : null,
+          last_ts: ltfData[ltfData.length - 1]?.timestamp
+            ? new Date(ltfData[ltfData.length - 1]!.timestamp).toISOString()
+            : null,
+          signals: { long: longSignals, short: shortSignals, total: longSignals + shortSignals },
+          zones: { total: zones.length, bull: bullZones, bear: bearZones, neutral: neutralZones },
+          overlay_counts: {
+            fvgs: smcOverlay.fvgs.length,
+            orderBlocks: smcOverlay.orderBlocks.length,
+            breakerBlocks: smcOverlay.breakerBlocks.length,
+            rejectionBlocks: smcOverlay.rejectionBlocks.length,
+            liquidity: smcOverlay.liquidity.length,
+            structure: smcOverlay.structure.length,
+          },
+          trades: {
+            total: report.totalTrades,
+            long: longTrades,
+            short: shortTrades,
+            wins: report.wins,
+            losses: report.losses,
+            open: report.openTrades,
+          },
+          smcLayers,
+          merged_settings: merged,
+        });
       });
     },
-    [ltfData, smcOverlay, smcOpts.fvgMaxFillPct, symbol],
+    [ltfData, smcOverlay, smcOpts.fvgMaxFillPct, symbol, smcLayers, tfPairId],
   );
 
   /**
@@ -617,10 +663,9 @@ export default function App() {
       extendedAbortRef.current = ac;
       setExtendedRunning(true);
       setExtendedProgress({ stage: 'loading', loaded: 0, total: days });
-      // Очищаем dev-log в начале прогона — каждый запуск = свой контекст
-      // для диагностики.
-      devLogClear();
-      devLog('extended-bt:start', {
+      // Лог аккумулируется (не очищаем) — пользователь может смотреть
+      // историю последних действий.
+      devLog('extended:start', {
         candleCount,
         days,
         symbol,
@@ -733,7 +778,7 @@ export default function App() {
       const report = runBacktest(ltf as Candle5m[], overlay, merged);
 
       // Диагностика → frontend/dev-log.txt, читается ассистентом напрямую.
-      devLog('extended-bt:result', {
+      devLog('extended:run', {
         candleCount,
         ltfTf,
         htfTf,
@@ -1029,6 +1074,17 @@ export default function App() {
         source: 'vision',
         message: `Vision aggTrades: ${ltf.length} × 5m с настоящими кластерами (${dataset.meta.from.slice(0, 10)} … ${dataset.meta.to.slice(0, 10)})`,
       });
+      devLog('history:load', {
+        symbol,
+        source: 'vision',
+        days: 7,
+        candleCount: ltf.length,
+        first_ts: ltf[0]?.timestamp ? new Date(ltf[0]!.timestamp).toISOString() : null,
+        last_ts: ltf[ltf.length - 1]?.timestamp
+          ? new Date(ltf[ltf.length - 1]!.timestamp).toISOString()
+          : null,
+        has_clusters: (ltf[0]?.clusters?.length ?? 0) > 0,
+      });
       return;
     } catch (e) {
       if ((e as { name?: string }).name === 'AbortError') return;
@@ -1053,6 +1109,18 @@ export default function App() {
         kind: 'success',
         source: 'klines',
         message: `Binance klines (без кластеров): ${ltf.length} × 5m. Footprint доступен на моке.`,
+      });
+      devLog('history:load', {
+        symbol,
+        source: 'klines',
+        days: 7,
+        candleCount: ltf.length,
+        first_ts: ltf[0]?.timestamp ? new Date(ltf[0]!.timestamp).toISOString() : null,
+        last_ts: ltf[ltf.length - 1]?.timestamp
+          ? new Date(ltf[ltf.length - 1]!.timestamp).toISOString()
+          : null,
+        has_clusters: false,
+        warning: 'klines не имеют кластерных полей — `checkSignal` вернёт 0 сигналов на этих данных',
       });
     } catch (e) {
       if ((e as { name?: string }).name === 'AbortError') return;

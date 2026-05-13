@@ -53,6 +53,7 @@ import { countCombinations, generateGrid } from '@/optimizer/generateGrid';
 import { runOptimizer } from '@/optimizer/runOptimizer';
 import { applySavedResult } from '@/optimizer/applySavedResult';
 import { sampleRandomCombos, localNeighbors } from '@/optimizer/sampleStrategy';
+import { devLog } from '@/dev/devLog';
 
 /** Параметры умного поиска (sample + local). Подобраны эмпирически. */
 const SAMPLE_SIZE = 50_000;
@@ -253,6 +254,18 @@ export function OptimizerPanel({
   };
 
   const applySaved = (s: SavedResult) => {
+    devLog('apply-saved', {
+      savedId: s.id,
+      savedSymbol: s.symbol ?? null,
+      savedTfPairId: s.tfPairId ?? null,
+      savedTickMult: s.dataParams.tickMultiplier ?? null,
+      currentSymbol: symbol,
+      currentTfPairId: tfPairId,
+      symbolMismatch: s.symbol && s.symbol !== symbol,
+      tfPairMismatch: s.tfPairId && s.tfPairId !== tfPairId,
+      savedScore: s.score,
+      savedSummary: s.summary,
+    });
     applySavedResult(s, {
       baseSettings,
       baseSmcOpts,
@@ -354,6 +367,22 @@ export function OptimizerPanel({
     const combos = resume?.legacyCombos
       ? resume.legacyCombos
       : generateGrid(resume?.specs ?? effectiveOptSettings.specs);
+    devLog('optimizer:run-start', {
+      symbol,
+      tfPairId,
+      mode: 'exhaustive',
+      totalCombos: combos.length,
+      ltfDataLen: probe.candles.length,
+      first_ts: probe.candles[0]?.timestamp
+        ? new Date(probe.candles[0]!.timestamp).toISOString()
+        : null,
+      last_ts: probe.candles[probe.candles.length - 1]?.timestamp
+        ? new Date(probe.candles[probe.candles.length - 1]!.timestamp).toISOString()
+        : null,
+      resume: resume ? { startIndex: resume.startIndex, hasLegacy: !!resume.legacyCombos } : null,
+      metric: effectiveOptSettings.metric,
+      topN: effectiveOptSettings.topN,
+    });
     const startIndex = resume?.legacyCombos
       ? 0
       : (resume?.startIndex ?? 0);
@@ -394,8 +423,27 @@ export function OptimizerPanel({
       });
       setResults(found);
 
-      // Запись в историю по итогам прогона.
       const meta = runStartRef.current!;
+      devLog('optimizer:run-done', {
+        symbol,
+        tfPairId,
+        mode: 'exhaustive',
+        status: paused ? 'paused' : ac.signal.aborted ? 'cancelled' : 'completed',
+        totalCombos: meta.total,
+        elapsed_ms: Date.now() - meta.startedAt,
+        topResultsCount: found.length,
+        topScore: found[0]?.score ?? null,
+        topReport: found[0]
+          ? {
+              trades: found[0]!.report.totalTrades,
+              wins: found[0]!.report.wins,
+              losses: found[0]!.report.losses,
+              winRate: found[0]!.report.winRate,
+              totalPnlR: found[0]!.report.totalPnlR,
+            }
+          : null,
+      });
+
       if (paused) {
         const snap = paused as { processed: number; top: OptimizerResult[] };
         const newHistoryId = makeId();
@@ -498,6 +546,24 @@ export function OptimizerPanel({
     const samples = sampleRandomCombos(opts.specs, SAMPLE_SIZE);
     runStartRef.current = { startedAt, total: samples.length };
     setProgress({ done: 0, total: samples.length, best: null });
+    const probeData = prepareData(undefined);
+    devLog('optimizer:run-start', {
+      symbol,
+      tfPairId,
+      mode: 'sample',
+      sampleSize: SAMPLE_SIZE,
+      localExpandTopK: LOCAL_EXPAND_TOP_K,
+      localRadius: LOCAL_RADIUS,
+      ltfDataLen: probeData.candles.length,
+      first_ts: probeData.candles[0]?.timestamp
+        ? new Date(probeData.candles[0]!.timestamp).toISOString()
+        : null,
+      last_ts: probeData.candles[probeData.candles.length - 1]?.timestamp
+        ? new Date(probeData.candles[probeData.candles.length - 1]!.timestamp).toISOString()
+        : null,
+      metric: opts.metric,
+      topN: opts.topN,
+    });
 
     try {
       const stage1Top = await runOptimizer({
@@ -567,6 +633,30 @@ export function OptimizerPanel({
           }),
       });
       setResults(finalTop);
+      devLog('optimizer:run-done', {
+        symbol,
+        tfPairId,
+        mode: 'sample',
+        status: ac.signal.aborted ? 'cancelled' : 'completed',
+        stage1Combos: samples.length,
+        stage2Neighbors: neighborCombos.length,
+        totalCombos: samples.length + neighborCombos.length,
+        elapsed_ms: Date.now() - startedAt,
+        topScore: finalTop[0]?.score ?? null,
+        stage1TopScore: stage1Top[0]?.score ?? null,
+        scoreLiftFromStage2: finalTop[0] && stage1Top[0]
+          ? (finalTop[0].score - stage1Top[0].score)
+          : null,
+        topReport: finalTop[0]
+          ? {
+              trades: finalTop[0]!.report.totalTrades,
+              wins: finalTop[0]!.report.wins,
+              losses: finalTop[0]!.report.losses,
+              winRate: finalTop[0]!.report.winRate,
+              totalPnlR: finalTop[0]!.report.totalPnlR,
+            }
+          : null,
+      });
 
       addHistoryAndSet({
         id: makeId(),
