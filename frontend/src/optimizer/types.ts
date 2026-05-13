@@ -45,6 +45,7 @@ export type BacktestKey =
   | 'maxReentries'
   | 'minFvgPct'
   | 'maxCandleBodyPct'
+  | 'fvgMaxLifetimeCandles'
   | 'reentryAfterWin'
   | 'slBehindObWick'
   | 'slBehindFvgEdge'
@@ -59,6 +60,7 @@ export type BacktestKey =
 export type SmcKey =
   | 'lookback'
   | 'fvgMaxFillPct'
+  | 'equalityTolerancePct'
   | 'obExtraction'
   | 'obUseMeanThreshold'
   | 'obRequireAbsorption'
@@ -69,7 +71,9 @@ export type SmcKey =
   | 'rbWickRatio'
   | 'rbRequireSweep'
   | 'rbAlsoAtFvg'
-  | 'rbUseMeanThreshold';
+  | 'rbUseMeanThreshold'
+  | 'liqShowCompression'
+  | 'liqCompressionMinPoints';
 
 /**
  * Параметры пайплайна данных (не входят в BacktestSettings / SmcOptions).
@@ -82,6 +86,7 @@ export type OptimizableKey = BacktestKey | SmcKey | DataKey;
 export const SMC_KEYS: ReadonlySet<SmcKey> = new Set<SmcKey>([
   'lookback',
   'fvgMaxFillPct',
+  'equalityTolerancePct',
   'obExtraction',
   'obUseMeanThreshold',
   'obRequireAbsorption',
@@ -93,6 +98,8 @@ export const SMC_KEYS: ReadonlySet<SmcKey> = new Set<SmcKey>([
   'rbRequireSweep',
   'rbAlsoAtFvg',
   'rbUseMeanThreshold',
+  'liqShowCompression',
+  'liqCompressionMinPoints',
 ]);
 
 export const DATA_KEYS: ReadonlySet<DataKey> = new Set<DataKey>(['tickMultiplier']);
@@ -157,6 +164,7 @@ export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
     maxReentries: { type: 'number', enabled: false, from: 0, to: 3, step: 1 },
     minFvgPct: { type: 'number', enabled: false, from: 0, to: 0.5, step: 0.1 },
     maxCandleBodyPct: { type: 'number', enabled: false, from: 0, to: 2, step: 0.5 },
+    fvgMaxLifetimeCandles: { type: 'number', enabled: false, from: 10, to: 50, step: 10 },
     reentryAfterWin: { type: 'bool', enabled: false, bothValues: true },
     slBehindObWick: { type: 'bool', enabled: false, bothValues: true },
     slBehindFvgEdge: { type: 'bool', enabled: false, bothValues: true },
@@ -165,6 +173,7 @@ export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
     // ===== SMC =====
     lookback: { type: 'number', enabled: false, from: 3, to: 10, step: 1 },
     fvgMaxFillPct: { type: 'number', enabled: false, from: 30, to: 80, step: 10 },
+    equalityTolerancePct: { type: 'number', enabled: false, from: 0.0001, to: 0.001, step: 0.0001 },
     obExtraction: { type: 'enum', enabled: false, values: ['wicks', 'body', 'auto'] },
     obUseMeanThreshold: { type: 'bool', enabled: false, bothValues: true },
     obRequireAbsorption: { type: 'bool', enabled: false, bothValues: true },
@@ -176,6 +185,9 @@ export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
     rbRequireSweep: { type: 'bool', enabled: false, bothValues: true },
     rbAlsoAtFvg: { type: 'bool', enabled: false, bothValues: true },
     rbUseMeanThreshold: { type: 'bool', enabled: false, bothValues: true },
+    // ===== SMC: Liquidity =====
+    liqShowCompression: { type: 'bool', enabled: false, bothValues: true },
+    liqCompressionMinPoints: { type: 'number', enabled: false, from: 2, to: 5, step: 1 },
     // ===== Данные =====
     tickMultiplier: { type: 'enum', enabled: false, values: ['1', '2', '5', '10'] },
   },

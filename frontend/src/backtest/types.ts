@@ -15,6 +15,16 @@ export interface BacktestSettings {
   maxReentries: number;
   /** FVG считается валидным, пока не перекрыт более чем на X%. 0–100. */
   fvgMaxFillPct: number;
+  /**
+   * Максимальный «возраст» FVG в свечах LTF — сколько свечей после
+   * формирования FVG ещё может дать сделку. 0 = без ограничения по возрасту
+   * (только fvgMaxFillPct и validityByMt). N > 0 → FVG старше N свечей
+   * скипается даже если ещё не заполнен.
+   *
+   * Идея: на длинных окнах старые FVG доживают тысячи свечей и дают шум.
+   * Параметр режет «вечные» зоны.
+   */
+  fvgMaxLifetimeCandles: number;
   /** Макс. размер тела сигнальной свечи в % от цены. 0 = без ограничения. */
   maxCandleBodyPct: number;
   /** Мин. размер FVG в % от цены. FVG меньше этого порога игнорируются. */
@@ -57,6 +67,7 @@ export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
   zoneGapPct: 10,
   maxReentries: 1,
   fvgMaxFillPct: 50,
+  fvgMaxLifetimeCandles: 0,
   maxCandleBodyPct: 1,
   minFvgPct: 0.1,
   debugLog: false,

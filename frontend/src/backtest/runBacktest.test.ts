@@ -386,4 +386,127 @@ describe('runBacktest', () => {
     expect(report.totalTrades).toBe(1);
     expect(report.trades[0]!.stopPrice).toBe(99);
   });
+
+  describe('fvgMaxLifetimeCandles', () => {
+    function setupOldFvgScenario(): {
+      overlay: SmcOverlay;
+      candles: Candle5m[];
+    } {
+      // FVG сформирован при T0, сигнальная свеча — 50 candles спустя.
+      // Возраст = 50 свечей на момент сигнала.
+      const overlay: SmcOverlay = {
+        fvgs: [{
+          id: 'fvg1',
+          kind: 'bull',
+          startTime: T0,
+          endTime: T0 + MS5 * 100,
+          minPrice: 99,
+          maxPrice: 101,
+          unmitigated: true,
+        }],
+        liquidity: [],
+        structure: [],
+        orderBlocks: [],
+        breakerBlocks: [],
+        rejectionBlocks: [],
+        prevDayLevels: [],
+        compressions: [],
+      };
+      const candles: Candle5m[] = [];
+      // Заполняем 49 нейтральных свеч ВЫШЕ FVG (low=102 > maxPrice=101),
+      // чтобы они не заполняли gap и не триггерили fvg_filled.
+      for (let i = 0; i < 49; i++) {
+        candles.push(makeCandle(T0 + MS5 * i, 103, 104, 102, 103, 0, 103, 0, 0));
+      }
+      // Свеча 49: signal LONG, попадает в FVG, возраст = 49 candles.
+      candles.push(makeCandle(T0 + MS5 * 49, 100, 101, 99, 100.8, 10, 100, -5, 2));
+      candles.push(makeCandle(T0 + MS5 * 50, 100.8, 108, 100.5, 107, 5, 104, -1, 1));
+      return { overlay, candles };
+    }
+
+    it('0 = без ограничения, сделка открывается на старой зоне', () => {
+      const { overlay, candles } = setupOldFvgScenario();
+      const settings: BacktestSettings = {
+        ...DEFAULT_BACKTEST_SETTINGS,
+        stopPct: 0.3,
+        rewardRatio: 2,
+        zoneGapPct: 0,
+        maxReentries: 0,
+        fvgMaxLifetimeCandles: 0,
+      };
+      const report = runBacktest(candles, overlay, settings);
+      expect(report.totalTrades).toBe(1);
+    });
+
+    it('30 свечей — старая FVG (возраст 49) скипается', () => {
+      const { overlay, candles } = setupOldFvgScenario();
+      const settings: BacktestSettings = {
+        ...DEFAULT_BACKTEST_SETTINGS,
+        stopPct: 0.3,
+        rewardRatio: 2,
+        zoneGapPct: 0,
+        maxReentries: 0,
+        fvgMaxLifetimeCandles: 30,
+      };
+      const report = runBacktest(candles, overlay, settings);
+      expect(report.totalTrades).toBe(0);
+    });
+
+    it('100 свечей — возраст 49 проходит, сделка открывается', () => {
+      const { overlay, candles } = setupOldFvgScenario();
+      const settings: BacktestSettings = {
+        ...DEFAULT_BACKTEST_SETTINGS,
+        stopPct: 0.3,
+        rewardRatio: 2,
+        zoneGapPct: 0,
+        maxReentries: 0,
+        fvgMaxLifetimeCandles: 100,
+      };
+      const report = runBacktest(candles, overlay, settings);
+      expect(report.totalTrades).toBe(1);
+    });
+
+    it('OB-зона не задета лимитом FVG-жизни (проверка избирательности)', () => {
+      // Та же выборка свечей, но зона — OB, не FVG. Лимит не должен трогать.
+      const overlay: SmcOverlay = {
+        fvgs: [],
+        liquidity: [],
+        structure: [],
+        orderBlocks: [{
+          id: 'ob1',
+          kind: 'bull',
+          obTime: T0,
+          startTime: T0,
+          endTime: T0 + MS5 * 100,
+          minPrice: 99,
+          maxPrice: 101,
+          mtPrice: 100,
+          openPrice: 100,
+          hasFvg: false,
+          unmitigated: true,
+          breakKind: 'BOS',
+        }],
+        breakerBlocks: [],
+        rejectionBlocks: [],
+        prevDayLevels: [],
+        compressions: [],
+      };
+      const candles: Candle5m[] = [];
+      for (let i = 0; i < 49; i++) {
+        candles.push(makeCandle(T0 + MS5 * i, 100, 101, 99, 100, 0, 100, 0, 0));
+      }
+      candles.push(makeCandle(T0 + MS5 * 49, 100, 101, 99, 100.8, 10, 100, -5, 2));
+      candles.push(makeCandle(T0 + MS5 * 50, 100.8, 108, 100.5, 107, 5, 104, -1, 1));
+      const settings: BacktestSettings = {
+        ...DEFAULT_BACKTEST_SETTINGS,
+        stopPct: 0.3,
+        rewardRatio: 2,
+        zoneGapPct: 0,
+        maxReentries: 0,
+        fvgMaxLifetimeCandles: 10, // жёсткий лимит — но OB не FVG
+      };
+      const report = runBacktest(candles, overlay, settings);
+      expect(report.totalTrades).toBe(1);
+    });
+  });
 });

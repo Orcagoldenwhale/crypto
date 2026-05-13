@@ -208,6 +208,12 @@ export function runBacktest(
     return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
 
+  // Длительность одной свечи в мс — для проверки возраста FVG-зон в свечах.
+  // Берём дельту между первыми двумя свечами (LTF-grid однороден).
+  const msPerCandle = candles.length >= 2
+    ? candles[1]!.timestamp - candles[0]!.timestamp
+    : 5 * 60 * 1000;
+
   for (let i = 0; i < candles.length; i++) {
     const candle = candles[i]!;
 
@@ -262,6 +268,14 @@ export function runBacktest(
         if (maxFill > settings.fvgMaxFillPct) {
           trace(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=fvg_filled (${maxFill.toFixed(1)}% > ${settings.fvgMaxFillPct}%)`);
           continue;
+        }
+        // Возраст FVG-зоны в свечах. 0 = без лимита.
+        if (settings.fvgMaxLifetimeCandles > 0) {
+          const ageCandles = (candle.timestamp - zone.startTime) / msPerCandle;
+          if (ageCandles > settings.fvgMaxLifetimeCandles) {
+            trace(`[BT] ${ts} ${check.type} SKIP zone=${zone.id} reason=fvg_too_old (${Math.round(ageCandles)} > ${settings.fvgMaxLifetimeCandles} candles)`);
+            continue;
+          }
         }
       }
 

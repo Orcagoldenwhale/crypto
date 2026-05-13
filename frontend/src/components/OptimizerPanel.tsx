@@ -109,6 +109,7 @@ const PARAM_LABELS: Record<OptimizableKey, string> = {
   maxReentries: 'Перезаходов',
   minFvgPct: 'Мин. FVG (%) [бэктест]',
   maxCandleBodyPct: 'Макс. тело свечи (%)',
+  fvgMaxLifetimeCandles: 'FVG жизнь (свечей)',
   reentryAfterWin: 'Перезаход после win',
   slBehindObWick: 'SL за фитилём OB',
   slBehindFvgEdge: 'SL за дальней границей FVG',
@@ -128,6 +129,10 @@ const PARAM_LABELS: Record<OptimizableKey, string> = {
   rbRequireSweep: 'RB требовать sweep',
   rbAlsoAtFvg: 'RB фитиль в FVG',
   rbUseMeanThreshold: 'Учитывать MT для RB',
+  // Liquidity
+  equalityTolerancePct: 'Допуск равенства цен (доля)',
+  liqShowCompression: 'Compression-серии',
+  liqCompressionMinPoints: 'Compression: мин. точек',
 };
 
 interface SectionConfig {
@@ -143,7 +148,7 @@ const SECTIONS: SectionConfig[] = [
     visible: () => true,
     keys: [
       'stopPct', 'rewardRatio', 'zoneGapPct', 'maxReentries',
-      'minFvgPct', 'maxCandleBodyPct',
+      'minFvgPct', 'maxCandleBodyPct', 'fvgMaxLifetimeCandles',
       'reentryAfterWin', 'slBehindObWick', 'slBehindFvgEdge', 'validityByMt',
       'entryPoint',
     ],
@@ -173,6 +178,13 @@ const SECTIONS: SectionConfig[] = [
     keys: [
       'rbWickRatio', 'rbRequireSweep', 'rbAlsoAtFvg', 'rbUseMeanThreshold',
     ],
+  },
+  {
+    title: 'SMC: Liquidity / структура',
+    // equalityTolerancePct влияет на свинги (lookback) → нужен для OB / RB /
+    // Liquidity всегда. Compression — только при включённом Liquidity-слое.
+    visible: () => true,
+    keys: ['equalityTolerancePct', 'liqShowCompression', 'liqCompressionMinPoints'],
   },
   {
     title: 'Данные',

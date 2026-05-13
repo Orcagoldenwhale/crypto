@@ -146,6 +146,15 @@ export function BacktestPanel({
                   onChange={(v) => update('maxCandleBodyPct', v)}
                 />
               </Row>
+              <Row label="FVG жизнь (свечей)" hint="0 = без ограничения. N>0 → FVG старше N свечей пропускается даже если не заполнен">
+                <NumberInput
+                  value={settings.fvgMaxLifetimeCandles}
+                  min={0}
+                  max={1000}
+                  step={5}
+                  onChange={(v) => update('fvgMaxLifetimeCandles', v)}
+                />
+              </Row>
             </Section>
 
             <Section title="Перезаходы">
