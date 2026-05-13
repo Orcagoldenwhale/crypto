@@ -778,6 +778,22 @@ export default function App() {
       const report = runBacktest(ltf as Candle5m[], overlay, merged);
 
       // Диагностика → frontend/dev-log.txt, читается ассистентом напрямую.
+      // Полный breakdown: signals (LONG/SHORT), zones (bull/bear), trades
+      // по типу. Тот же формат что у backtest:run — единая структура
+      // диагностики, читать и сравнивать удобно.
+      const zones = collectZones(overlay, merged.zoneGapPct);
+      let longSignals = 0;
+      let shortSignals = 0;
+      for (const c of ltf) {
+        const s = checkSignal(c);
+        if (s.type === 'LONG') longSignals++;
+        else if (s.type === 'SHORT') shortSignals++;
+      }
+      const longTrades = report.trades.filter((t) => t.type === 'LONG').length;
+      const shortTrades = report.trades.filter((t) => t.type === 'SHORT').length;
+      const bullZones = zones.filter((z) => z.fvgKind === 'bull' || z.obKind === 'bull').length;
+      const bearZones = zones.filter((z) => z.fvgKind === 'bear' || z.obKind === 'bear').length;
+      const neutralZones = zones.length - bullZones - bearZones;
       devLog('extended:run', {
         candleCount,
         ltfTf,
@@ -794,6 +810,8 @@ export default function App() {
         ltf_vpoc: ltf[0]?.vpoc_price,
         smcCandles_first_ts: smcCandles[0]?.timestamp ? new Date(smcCandles[0].timestamp).toISOString() : null,
         smcLayers,
+        signals: { long: longSignals, short: shortSignals, total: longSignals + shortSignals },
+        zones: { total: zones.length, bull: bullZones, bear: bearZones, neutral: neutralZones },
         overlay_counts: {
           fvgs: overlay.fvgs.length,
           orderBlocks: overlay.orderBlocks.length,
@@ -802,7 +820,14 @@ export default function App() {
           liquidity: overlay.liquidity.length,
           structure: overlay.structure.length,
         },
-        trades: report.totalTrades,
+        trades: {
+          total: report.totalTrades,
+          long: longTrades,
+          short: shortTrades,
+          wins: report.wins,
+          losses: report.losses,
+          open: report.openTrades,
+        },
         merged_settings: merged,
       });
 
@@ -812,7 +837,6 @@ export default function App() {
       // зоны, footprint мгновенно обновляются.
       // Live mode не трогаем: mergeRaw5mWithLive продолжит дополнять хвост
       // (вчера → сегодня) поверх extended-снимка — корректно.
-      const zones = collectZones(overlay, merged.zoneGapPct);
       setRawData5m(trimmed as Candle5m[]);
       setBacktestZones(zones);
       setBacktestReport(report);

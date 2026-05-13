@@ -435,6 +435,14 @@ function BacktestReportView({
   accent?: boolean;
 }) {
   const wr = (report.winRate * 100).toFixed(1);
+  // Считаем LONG/SHORT тут (а не в state) — данные уже в report.trades,
+  // дополнительной памяти не требует, всегда актуально на момент render'а.
+  let longCount = 0;
+  let shortCount = 0;
+  for (const t of report.trades) {
+    if (t.type === 'LONG') longCount++;
+    else if (t.type === 'SHORT') shortCount++;
+  }
   return (
     <div className={`border-t px-3 py-2 ${accent ? 'border-tv-accent/40 bg-tv-accent/5' : 'border-tv-border'}`}>
       {title && (
@@ -444,6 +452,11 @@ function BacktestReportView({
       )}
       <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
         <StatLine label="Сделок" value={String(report.totalTrades)} />
+        <StatLine
+          label="L / S"
+          value={`${longCount} / ${shortCount}`}
+          color="text-tv-text"
+        />
         <StatLine
           label="W / L"
           value={`${report.wins} / ${report.losses}`}
