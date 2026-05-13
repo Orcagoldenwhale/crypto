@@ -51,6 +51,7 @@ import {
 } from '@/optimizer/types';
 import { countCombinations, generateGrid } from '@/optimizer/generateGrid';
 import { runOptimizer } from '@/optimizer/runOptimizer';
+import { applySavedResult } from '@/optimizer/applySavedResult';
 
 interface OptimizerPanelProps {
   baseSettings: BacktestSettings;
@@ -246,18 +247,15 @@ export function OptimizerPanel({
   };
 
   const applySaved = (s: SavedResult) => {
-    // ВАЖНО: TF-пару применяем ПЕРВОЙ. Смена TF-пары триггерит сброс
-    // signals/viewport (см. App.tsx tfPairId-useEffect). Если бы мы
-    // применили её после, последующая авто-перерисовка стёрла бы только
-    // что выставленные BT/SMC параметры с экрана.
-    if (onApplyTfPair && s.tfPairId && s.tfPairId !== tfPairId) {
-      onApplyTfPair(s.tfPairId);
-    }
-    onApplySmc({ ...baseSmcOpts, ...s.smcParams });
-    onApply({ ...baseSettings, ...s.btParams });
-    if (onApplyMultiplier && s.dataParams.tickMultiplier !== undefined) {
-      onApplyMultiplier(s.dataParams.tickMultiplier as 1 | 2 | 5 | 10);
-    }
+    applySavedResult(s, {
+      baseSettings,
+      baseSmcOpts,
+      currentTfPairId: tfPairId,
+      onApply,
+      onApplySmc,
+      onApplyMultiplier,
+      onApplyTfPair,
+    });
   };
 
   useEffect(() => {
