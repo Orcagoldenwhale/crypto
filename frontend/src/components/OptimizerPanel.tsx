@@ -17,6 +17,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Pause, Rocket, X, Square, Star, Trash2, Save, RotateCcw, FolderOpen } from 'lucide-react';
 import type { BacktestSettings } from '@/backtest/types';
 import type { SmcLayers, SmcOptions } from '@/engine/smc/types';
+import type { TfPairId } from '@/types';
+import { TF_PAIR_OPTIONS } from '@/data/tfPairs';
 import type { PreparedData } from '@/optimizer/runOptimizer';
 import {
   loadOptimizerDefaults,
@@ -68,7 +70,11 @@ interface OptimizerPanelProps {
    * Применить tick-multiplier (только 1 / 2 / 5 / 10). undefined =
    * параметр не варьировался, ничего не менять.
    */
-  onApplyMultiplier?: (mult: 1 | 2 | 5 | 10 | undefined) => void;
+  onApplyMultiplier?: ((mult: 1 | 2 | 5 | 10 | undefined) => void) | undefined;
+  /** Текущая торговая пара (например BTCUSDT) — пишется в Saved/History. */
+  symbol: string;
+  /** Текущая TF-пара (1h-5m / 5m-5m / …) — пишется в Saved/History. */
+  tfPairId: TfPairId;
 }
 
 const PARAM_LABELS: Record<OptimizableKey, string> = {
@@ -161,6 +167,8 @@ export function OptimizerPanel({
   onApply,
   onApplySmc,
   onApplyMultiplier,
+  symbol,
+  tfPairId,
 }: OptimizerPanelProps) {
   const [optSettings, setOptSettings] = useState<OptimizerSettings>(
     () => loadOptimizerDefaults() ?? DEFAULT_OPTIMIZER_SETTINGS,
@@ -212,7 +220,7 @@ export function OptimizerPanel({
   } | null>(null);
 
   const saveResult = (r: OptimizerResult) => {
-    const snap = snapshotResult(r, optSettings.metric);
+    const snap = snapshotResult(r, optSettings.metric, { symbol, tfPairId });
     setSavedResults((prev) => {
       const next = [snap, ...prev];
       persistSaved(next);
@@ -363,6 +371,8 @@ export function OptimizerPanel({
           totalCombos: meta.total,
           doneIndex: snap.processed,
           results: snap.top.map(slimResult),
+          symbol,
+          tfPairId,
         });
         // Если возобновляли — старую paused-запись удаляем (заменяем новой).
         if (resume?.resumeId) {
@@ -388,6 +398,8 @@ export function OptimizerPanel({
             totalCombos: meta.total,
             doneIndex: progress.done,
             results: found.map(slimResult),
+            symbol,
+            tfPairId,
           });
         }
         // Прерванный прогон сбрасывает paused-снимок.
@@ -403,6 +415,8 @@ export function OptimizerPanel({
           totalCombos: meta.total,
           doneIndex: meta.total,
           results: found.map(slimResult),
+          symbol,
+          tfPairId,
         });
         if (resume?.resumeId) {
           setHistory((prev) => removeHistoryEntry(prev, resume.resumeId!));
@@ -864,7 +878,7 @@ function ResultsTable({
   baseSmcOpts: SmcOptions;
   onApply: (next: BacktestSettings) => void;
   onApplySmc: (next: SmcOptions) => void;
-  onApplyMultiplier?: (mult: 1 | 2 | 5 | 10 | undefined) => void;
+  onApplyMultiplier?: ((mult: 1 | 2 | 5 | 10 | undefined) => void) | undefined;
   onSave: (r: OptimizerResult) => void;
 }) {
   return (
@@ -916,7 +930,7 @@ function ResultRow({
   baseSmcOpts: SmcOptions;
   onApply: (next: BacktestSettings) => void;
   onApplySmc: (next: SmcOptions) => void;
-  onApplyMultiplier?: (mult: 1 | 2 | 5 | 10 | undefined) => void;
+  onApplyMultiplier?: ((mult: 1 | 2 | 5 | 10 | undefined) => void) | undefined;
   onSave: (r: OptimizerResult) => void;
 }) {
   const { report, btParams, smcParams, dataParams, score } = result;
@@ -1025,6 +1039,7 @@ function SavedView({
         <thead className="sticky top-0 bg-tv-panel text-tv-text-muted">
           <tr>
             <th className="px-2 py-1 text-left">Дата</th>
+            <th className="px-2 py-1 text-left">Источник</th>
             <th className="px-2 py-1 text-left">Метрика</th>
             <th className="px-2 py-1 text-right">Score</th>
             <th className="px-2 py-1 text-right">Сделок</th>
@@ -1039,6 +1054,9 @@ function SavedView({
           {items.map((s) => (
             <tr key={s.id} className="border-t border-tv-border/40 hover:bg-tv-panel-hover">
               <td className="px-2 py-1 text-tv-text-muted">{formatDate(s.savedAt)}</td>
+              <td className="px-2 py-1 text-tv-text-muted whitespace-nowrap">
+                {joinSourceParts([s.symbol ?? null, tfPairLabel(s.tfPairId), formatTickFromSaved(s)])}
+              </td>
               <td className="px-2 py-1 text-tv-text-muted">{METRIC_LABEL[s.metric]}</td>
               <td className="px-2 py-1 text-right font-mono text-tv-accent">{formatScore(s.score)}</td>
               <td className="px-2 py-1 text-right font-mono">{s.summary.totalTrades}</td>
@@ -1088,6 +1106,39 @@ function formatDate(ts: number): string {
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/**
+ * Подпись «Источник» для строки в Saved/History.
+ *   - symbol — например BTCUSDT (если есть)
+ *   - tfPair — `15m → 5m` (multi-TF), `5m (single)` и т.п.
+ *   - tick — для Saved одно значение (`×N`); для History — перечисление значений
+ *     если параметр варьировался (`×1, ×2, ×5`) или одно значение если фиксирован.
+ * Single/multi относится к ТАЙМФРЕЙМУ (зашито в подпись TF-пары), не к tick.
+ * Старые записи без этих полей показывают прочерк, чтобы строка не была пустой.
+ */
+function tfPairLabel(id: string | undefined): string | null {
+  if (!id) return null;
+  const opt = TF_PAIR_OPTIONS.find((o) => o.id === id);
+  return opt ? opt.label : id;
+}
+
+function formatTickFromSaved(s: SavedResult): string | null {
+  const m = s.dataParams.tickMultiplier;
+  return typeof m === 'number' ? `×${m}` : null;
+}
+
+function formatTickFromHistory(e: RunHistoryEntry): string | null {
+  const spec = e.optSettings?.specs?.tickMultiplier;
+  if (!spec || spec.type !== 'enum' || !spec.enabled) return null;
+  const vs = spec.values;
+  if (vs.length === 0) return null;
+  return vs.map((v) => `×${v}`).join(', ');
+}
+
+function joinSourceParts(parts: ReadonlyArray<string | null>): string {
+  const filtered = parts.filter((p): p is string => !!p);
+  return filtered.length > 0 ? filtered.join(' · ') : '—';
+}
+
 // ============================================================================
 // История прогонов (вкладка)
 // ============================================================================
@@ -1126,6 +1177,7 @@ function HistoryView({
         <thead className="sticky top-0 bg-tv-panel text-tv-text-muted">
           <tr>
             <th className="px-2 py-1 text-left">Дата</th>
+            <th className="px-2 py-1 text-left">Источник</th>
             <th className="px-2 py-1 text-left">Статус</th>
             <th className="px-2 py-1 text-right">Прогресс</th>
             <th className="px-2 py-1 text-left">Метрика</th>
@@ -1145,6 +1197,9 @@ function HistoryView({
             return (
               <tr key={e.id} className="border-t border-tv-border/40 hover:bg-tv-panel-hover">
                 <td className="px-2 py-1 text-tv-text-muted">{formatDate(e.startedAt)}</td>
+                <td className="px-2 py-1 text-tv-text-muted whitespace-nowrap">
+                  {joinSourceParts([e.symbol ?? null, tfPairLabel(e.tfPairId), formatTickFromHistory(e)])}
+                </td>
                 <td className="px-2 py-1 text-tv-text">{STATUS_LABEL[e.status]}</td>
                 <td className="px-2 py-1 text-right font-mono text-tv-text-muted">
                   {e.doneIndex}/{e.totalCombos} ({pct}%)

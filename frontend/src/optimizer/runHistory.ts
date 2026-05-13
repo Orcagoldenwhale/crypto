@@ -8,6 +8,7 @@
  * Размер ограничен MAX_ENTRIES — старые записи вытесняются.
  */
 
+import type { TfPairId } from '@/types';
 import type { Combo } from './generateGrid';
 import type { OptimizerResult, OptimizerSettings } from './types';
 
@@ -33,6 +34,16 @@ export interface RunHistoryEntry {
   remainingCombos?: Combo[];
   /** Пользовательская подпись (опц.). */
   label?: string;
+  /**
+   * Торговая пара на момент прогона (например BTCUSDT).
+   * Optional для backward-compat с записями до 1.36.1.
+   */
+  symbol?: string;
+  /**
+   * TF-пара (single или HTF→LTF) на момент прогона.
+   * Optional для backward-compat с записями до 1.36.1.
+   */
+  tfPairId?: TfPairId;
 }
 
 const STORAGE_KEY = 'smc-optimizer-history-v1';

@@ -8,6 +8,7 @@
 
 import type { BacktestReport, BacktestSettings } from '@/backtest/types';
 import type { SmcOptions } from '@/engine/smc/types';
+import type { TfPairId } from '@/types';
 import type { OptimizerMetric, OptimizerResult, OptimizerSettings } from './types';
 
 export interface SavedResultSummary {
@@ -36,6 +37,16 @@ export interface SavedResult {
   summary: SavedResultSummary;
   /** Опциональная пользовательская подпись. */
   note?: string;
+  /**
+   * Торговая пара на момент оптимизации (например BTCUSDT).
+   * Optional для backward-compat с записями до 1.36.1.
+   */
+  symbol?: string;
+  /**
+   * TF-пара (single или HTF→LTF) на момент оптимизации.
+   * Optional для backward-compat с записями до 1.36.1.
+   */
+  tfPairId?: TfPairId;
 }
 
 const STORAGE_KEY = 'smc-optimizer-saved-results-v1';
@@ -88,8 +99,11 @@ export function persistOptimizerDefaults(settings: OptimizerSettings): void {
 export function snapshotResult(
   result: OptimizerResult,
   metric: OptimizerMetric,
+  source?: { symbol?: string; tfPairId?: TfPairId },
 ): SavedResult {
   const r: BacktestReport = result.report;
+  // exactOptionalPropertyTypes=true → опциональные поля не должны явно
+  // равняться undefined; либо включаем поле со значением, либо опускаем.
   return {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     savedAt: Date.now(),
@@ -108,5 +122,7 @@ export function snapshotResult(
       avgPnlR: r.avgPnlR,
       maxConsecutiveLosses: r.maxConsecutiveLosses,
     },
+    ...(source?.symbol !== undefined ? { symbol: source.symbol } : {}),
+    ...(source?.tfPairId !== undefined ? { tfPairId: source.tfPairId } : {}),
   };
 }
