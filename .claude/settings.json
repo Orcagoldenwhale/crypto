@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && U=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ') && T=$(grep -rln 'TEMP-DEBUG' frontend/src 2>/dev/null | wc -l | tr -d ' ') && if [ \"$U\" -gt 0 ] || [ \"$T\" -gt 0 ]; then jq -n --arg msg \"REPO STATE: uncommitted=$U files | TEMP-DEBUG markers=$T (review before next turn)\" '{hookSpecificOutput: {hookEventName: \"Stop\", additionalContext: $msg}, systemMessage: (\"📋 \" + $msg)}'; fi",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

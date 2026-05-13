@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+#
+# pre-commit: блокирует коммит если в staged diff остался debug-код или
+# если падают тесты / типы / линт.
+#
+# Активация: `git config core.hooksPath tools/git-hooks` в каждом worktree.
+# Хук работает из любого git-worktree, потому что лежит в репо (а не в
+# .git/hooks/, которая локальна per-worktree).
+#
+# Можно временно обойти через `git commit --no-verify`, но это нарушение
+# Rule #5 из CLAUDE.md — не делай этого без явного согласования.
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# ---------------------------------------------------------------------------
+# 1. Debug-код не должен попадать в коммиты.
+# ---------------------------------------------------------------------------
+# Ищем в staged-diff (только добавляемые строки `+`) маркеры конвенции:
+#   - слово TEMP-DEBUG
+#   - вызов console.log(
+# Существующие console.warn/.error/.info — легитимные.
+# Исключаем infrastructure-файлы где эти строки появляются как part of
+# pattern'ов поиска, а не как настоящий debug:
+#   - tools/git-hooks/* — этот же скрипт
+#   - .claude/settings.json — конфиг Stop hook со строкой TEMP-DEBUG
+DEBUG_HITS=$(git diff --cached --diff-filter=AM \
+  -- ':!tools/git-hooks' ':!.claude/settings.json' \
+  | grep -E "^\+[^+].*(TEMP-DEBUG|console\.log\()" || true)
+if [ -n "$DEBUG_HITS" ]; then
+  echo "❌ pre-commit: debug-код в staged diff:"
+  echo "$DEBUG_HITS"
+  echo ""
+  echo "   Убери (TEMP-DEBUG / console.log) или используй devLog() из"
+  echo "   src/dev/devLog.ts. Чтобы обойти этот блок (плохая идея):"
+  echo "     git commit --no-verify"
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Типы.
+# ---------------------------------------------------------------------------
+echo "▶ pre-commit: typecheck…"
+if ! (cd frontend && npm run typecheck --silent) > /tmp/precommit-tc.log 2>&1; then
+  cat /tmp/precommit-tc.log
+  echo "❌ pre-commit: typecheck failed"
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 3. Линт (только errors, warnings допустимы как pre-existing хвосты).
+# ---------------------------------------------------------------------------
+echo "▶ pre-commit: lint…"
+if ! (cd frontend && npm run lint --silent) > /tmp/precommit-lint.log 2>&1; then
+  cat /tmp/precommit-lint.log
+  echo "❌ pre-commit: lint failed"
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# 4. Юнит-тесты (быстрые, ~2 секунды).
+# ---------------------------------------------------------------------------
+echo "▶ pre-commit: tests…"
+if ! (cd frontend && npm run test:run --silent) > /tmp/precommit-test.log 2>&1; then
+  cat /tmp/precommit-test.log
+  echo "❌ pre-commit: tests failed"
+  exit 1
+fi
+
+echo "✓ pre-commit: clean (typecheck + lint + tests + no debug code)"
