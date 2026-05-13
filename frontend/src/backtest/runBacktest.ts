@@ -123,9 +123,18 @@ export function collectZones(overlay: SmcOverlay, zoneGapPct: number): SmcZoneRe
   for (const s of overlay.structure) {
     const band = s.level * 0.001;
     const gap = band * gapFrac;
+    // FIX (lookahead): startTime раньше был s.levelTime (момент свинг-точки).
+    // Но свинг становится «известным» только после lookback подтверждающих
+    // свечей; до этого торговать на нём — это будущая информация.
+    // Самое раннее «гарантированно подтверждённое» событие = breakTime
+    // (момент пробоя — детектор фиксирует свинг как уровень и одновременно
+    // отмечает его пробой). Торгуем зону на retest после break:
+    //   active = [breakTime, retestTime ?? breakTime]
+    // Если retest не произошёл — endTime == startTime → пустая зона (нет
+    // сделок, как и должно быть без подтверждённого ретеста).
     zones.push({
       id: `str-${s.id}`,
-      startTime: s.levelTime,
+      startTime: s.breakTime,
       endTime: s.retestTime ?? s.breakTime,
       minPrice: s.level - band - gap,
       maxPrice: s.level + band + gap,
@@ -380,7 +389,19 @@ export function runBacktest(
         }
       }
 
-      trace(`[BT] ${ts} ${type} ENTRY zone=${zone.id} entry=${entryPrice.toFixed(2)} SL=${stopPrice.toFixed(2)} TP=${takePrice.toFixed(2)} → ${outcome} ${pnlR >= 0 ? '+' : ''}${pnlR.toFixed(1)}R`);
+      // Lookahead-инвариант: entry-свеча должна быть СТРОГО ПОЗЖЕ
+      // zone.startTime (когда зона "стала известна"). candleInZone уже
+      // проверяет это (`candle.timestamp > zone.startTime` strict), но
+      // здесь явный лог — чтобы если детектор когда-нибудь выставит
+      // startTime с lookahead'ом, мы поймали это сразу.
+      const ageMs = candle.timestamp - zone.startTime;
+      const ageCandles = msPerCandle > 0 ? Math.round(ageMs / msPerCandle) : 0;
+      trace(`[BT] ${ts} ${type} ENTRY zone=${zone.id} entry=${entryPrice.toFixed(2)} SL=${stopPrice.toFixed(2)} TP=${takePrice.toFixed(2)} zoneStart=${fmt(zone.startTime)} age=${ageCandles}c → ${outcome} ${pnlR >= 0 ? '+' : ''}${pnlR.toFixed(1)}R`);
+      // Защитный assert: если когда-нибудь это сработает — есть баг в
+      // детекторе (startTime в будущем относительно entry).
+      if (ageMs <= 0 && debug) {
+        log.push(`[BT] !!! LOOKAHEAD invariant violated: entry ${fmt(candle.timestamp)} <= zoneStart ${fmt(zone.startTime)}`);
+      }
 
       const tradeId = `${zone.id}::${candle.timestamp}::${type}::${count}`;
       trades.push({
