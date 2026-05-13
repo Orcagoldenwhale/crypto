@@ -34,21 +34,25 @@ interface BacktestPanelProps {
   report: BacktestReport | null;
   running: boolean;
   /**
-   * Запуск расширенного бэктеста на N свечей (например 50 000).
-   * Параметры берутся из текущих settings; данные подгружаются отдельно
-   * из Vision (потому что кластерные правила входа требуют именно Vision).
+   * Запуск расширенного бэктеста на N свечей. Грузит Vision, ПОДМЕНЯЕТ
+   * основной chart-датасет на длинное окно, прогоняет regular backtest.
+   * После завершения report показывается в основной карточке (а не отдельно),
+   * график рисует все N свечей с зонами/сделками.
    */
   onRunExtended: (settings: BacktestSettings, candleCount: ExtendedCandleCount) => void;
-  /** Текущий отчёт расширенного бэктеста (null если ещё не гоняли). */
-  extendedReport: BacktestReport | null;
   /** true пока идёт загрузка/прогон расширенного. */
   extendedRunning: boolean;
   /** Прогресс расширенного бэктеста (null если не идёт). */
   extendedProgress: ExtendedProgress | null;
-  /** Сколько свечей в текущем extendedReport (для подписи). */
-  extendedCandleCount: ExtendedCandleCount | null;
+  /**
+   * Размер активной extended-выборки (null = просмотр обычной 7-дневной).
+   * Показываем banner в панели когда не null + кнопку «вернуться к 7д».
+   */
+  extendedCandleCountActive: ExtendedCandleCount | null;
   /** Отменить идущий расширенный бэктест. */
   onCancelExtended: () => void;
+  /** Сбросить флаг extended; данные остаются до явной перезагрузки. */
+  onResetExtended: () => void;
 }
 
 export function BacktestPanel({
@@ -58,11 +62,11 @@ export function BacktestPanel({
   report,
   running,
   onRunExtended,
-  extendedReport,
   extendedRunning,
   extendedProgress,
-  extendedCandleCount,
+  extendedCandleCountActive,
   onCancelExtended,
+  onResetExtended,
 }: BacktestPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [extendedCount, setExtendedCount] = useState<ExtendedCandleCount>(50000);
@@ -214,52 +218,78 @@ export function BacktestPanel({
             </button>
           </div>
 
-          {/* Расширенный бэктест на большое окно (Vision-данные с кластерами) */}
+          {/* Расширенный бэктест: грузит Vision на N свечей и переключает
+              chart на длинное окно. После завершения report показывается в
+              основной карточке выше (та же, что и регулярный бэктест). */}
           <div className="border-t border-tv-border px-3 py-2">
-            <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-tv-text-muted">
-                Расширенный бэктест
-              </span>
-              <select
-                value={extendedCount}
-                onChange={(e) => setExtendedCount(Number(e.target.value) as ExtendedCandleCount)}
-                disabled={extendedRunning}
-                className="rounded border border-tv-border bg-tv-bg-deep px-1.5 py-0.5 text-[10px] text-white outline-none focus:border-tv-accent disabled:opacity-40"
-                title="Сколько 5m-свечей подгрузить из Vision и прогнать на текущих настройках"
-              >
-                {EXTENDED_CANDLE_OPTIONS.map((n) => (
-                  <option key={n} value={n}>
-                    {n.toLocaleString('ru-RU')} (~{daysForCandles(n)}д)
-                  </option>
-                ))}
-              </select>
-            </div>
-            {extendedRunning ? (
-              <ExtendedProgressBar
-                progress={extendedProgress}
-                onCancel={onCancelExtended}
-              />
+            {extendedCandleCountActive !== null && !extendedRunning ? (
+              <>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-tv-accent">
+                    Просмотр {extendedCandleCountActive.toLocaleString('ru-RU')} свечей (~{daysForCandles(extendedCandleCountActive)}д)
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onResetExtended}
+                  className="flex w-full items-center justify-center gap-1.5 rounded border border-tv-border px-3 py-1 text-[11px] text-tv-text-muted transition-colors hover:bg-tv-panel-hover hover:text-white"
+                  title="Выйти из режима просмотра расширенной выборки. Перезагрузить 7-дневную историю можно через кнопку «Загрузить» сверху."
+                >
+                  <X className="h-3 w-3" />
+                  Закрыть расширенный режим
+                </button>
+              </>
             ) : (
-              <button
-                type="button"
-                onClick={() => onRunExtended(settings, extendedCount)}
-                disabled={running}
-                className="flex w-full items-center justify-center gap-1.5 rounded border border-tv-accent/40 bg-tv-accent/15 px-3 py-1 text-[11px] font-semibold text-tv-accent transition-colors hover:bg-tv-accent/30 disabled:opacity-50"
-                title={`Прогнать на ${extendedCount.toLocaleString('ru-RU')} свечей с текущими настройками. Vision aggTrades — кэшируется по дням.`}
-              >
-                <Zap className="h-3 w-3" />
-                Прогнать {extendedCount.toLocaleString('ru-RU')} свечей
-              </button>
+              <>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-tv-text-muted">
+                    Расширенный бэктест
+                  </span>
+                  <select
+                    value={extendedCount}
+                    onChange={(e) => setExtendedCount(Number(e.target.value) as ExtendedCandleCount)}
+                    disabled={extendedRunning}
+                    className="rounded border border-tv-border bg-tv-bg-deep px-1.5 py-0.5 text-[10px] text-white outline-none focus:border-tv-accent disabled:opacity-40"
+                    title="Сколько 5m-свечей подгрузить из Vision и прогнать на текущих настройках. График переключится на эту выборку."
+                  >
+                    {EXTENDED_CANDLE_OPTIONS.map((n) => (
+                      <option key={n} value={n}>
+                        {n.toLocaleString('ru-RU')} (~{daysForCandles(n)}д)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {extendedRunning ? (
+                  <ExtendedProgressBar
+                    progress={extendedProgress}
+                    onCancel={onCancelExtended}
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onRunExtended(settings, extendedCount)}
+                    disabled={running}
+                    className="flex w-full items-center justify-center gap-1.5 rounded border border-tv-accent/40 bg-tv-accent/15 px-3 py-1 text-[11px] font-semibold text-tv-accent transition-colors hover:bg-tv-accent/30 disabled:opacity-50"
+                    title={`Прогнать на ${extendedCount.toLocaleString('ru-RU')} свечей. График переключится на длинное окно — на нём будут видны все зоны и сделки.`}
+                  >
+                    <Zap className="h-3 w-3" />
+                    Прогнать {extendedCount.toLocaleString('ru-RU')} свечей
+                  </button>
+                )}
+              </>
             )}
           </div>
 
-          {report && <BacktestReportView report={report} title="Бэктест на текущей выборке" />}
-          {extendedReport && extendedCandleCount !== null && (
-            <BacktestReportView
-              report={extendedReport}
-              title={`Расширенный: ${extendedCandleCount.toLocaleString('ru-RU')} свечей (~${daysForCandles(extendedCandleCount)}д)`}
-              accent
-            />
+          {report && (
+            extendedCandleCountActive !== null ? (
+              <BacktestReportView
+                report={report}
+                title={`Бэктест на ${extendedCandleCountActive.toLocaleString('ru-RU')} свечей (~${daysForCandles(extendedCandleCountActive)}д)`}
+                accent
+              />
+            ) : (
+              <BacktestReportView report={report} />
+            )
           )}
         </div>
       )}

@@ -194,12 +194,14 @@ export default function App() {
   const [backtestZones, setBacktestZones] = useState<SmcZoneRect[]>([]);
   const [backtestSettings, setBacktestSettings] = useState<BacktestSettings>(DEFAULT_BACKTEST_SETTINGS);
 
-  // Расширенный бэктест — отдельное состояние, не пересекается с обычным.
-  // Данные загружаются по запросу, кэшируются в ref'е по ключу symbol+days+mult.
-  const [extendedReport, setExtendedReport] = useState<BacktestReportData | null>(null);
+  // Расширенный бэктест: загружает длинную Vision-выборку, ПОДМЕНЯЕТ
+  // основной rawData5m и сразу прогоняет регулярный бэктест на ней.
+  // График, зоны, сделки — всё переключается на extended окно, как при
+  // обычном 7-дневном просмотре.
+  // `extendedCandleCountActive` ≠ null → мы сейчас в extended-режиме.
   const [extendedRunning, setExtendedRunning] = useState(false);
   const [extendedProgress, setExtendedProgress] = useState<ExtendedProgress | null>(null);
-  const [extendedCandleCount, setExtendedCandleCount] = useState<ExtendedCandleCount | null>(null);
+  const [extendedCandleCountActive, setExtendedCandleCountActive] = useState<ExtendedCandleCount | null>(null);
   const extendedAbortRef = useRef<AbortController | null>(null);
   const extendedCacheRef = useRef<Map<string, readonly Candle5m[]>>(new Map());
 
@@ -614,7 +616,6 @@ export default function App() {
       const ac = new AbortController();
       extendedAbortRef.current = ac;
       setExtendedRunning(true);
-      setExtendedReport(null);
       setExtendedProgress({ stage: 'loading', loaded: 0, total: days });
       // Очищаем dev-log в начале прогона — каждый запуск = свой контекст
       // для диагностики.
@@ -760,8 +761,17 @@ export default function App() {
         merged_settings: merged,
       });
 
-      setExtendedReport(report);
-      setExtendedCandleCount(candleCount);
+      // Подмена основной выборки: rawData5m получает trimmed, useMemos
+      // (regroupCandles, aggregateTo15m/1h, smcOverlay через runSmcAnalysis
+      // на htfData) автоматически пересчитают с новыми данными — chart,
+      // зоны, footprint мгновенно обновляются.
+      // Live mode не трогаем: mergeRaw5mWithLive продолжит дополнять хвост
+      // (вчера → сегодня) поверх extended-снимка — корректно.
+      const zones = collectZones(overlay, merged.zoneGapPct);
+      setRawData5m(trimmed as Candle5m[]);
+      setBacktestZones(zones);
+      setBacktestReport(report);
+      setExtendedCandleCountActive(candleCount);
       setExtendedProgress(null);
       setExtendedRunning(false);
       extendedAbortRef.current = null;
@@ -771,6 +781,16 @@ export default function App() {
 
   const handleCancelExtended = useCallback(() => {
     extendedAbortRef.current?.abort();
+  }, []);
+
+  /**
+   * Выйти из extended-режима: сбросить флаг. График остаётся на загруженных
+   * extended-данных до явного «Загрузить историю» (или смены символа).
+   * Делать авто-перезагрузку 7d здесь не стоит — это лишний сетевой трафик
+   * и UI-сюрприз; пусть пользователь сам решит.
+   */
+  const handleResetExtended = useCallback(() => {
+    setExtendedCandleCountActive(null);
   }, []);
 
   // ============================================================================
@@ -1613,11 +1633,11 @@ export default function App() {
             report={backtestReport}
             running={backtestRunning}
             onRunExtended={handleRunExtended}
-            extendedReport={extendedReport}
             extendedRunning={extendedRunning}
             extendedProgress={extendedProgress}
-            extendedCandleCount={extendedCandleCount}
+            extendedCandleCountActive={extendedCandleCountActive}
             onCancelExtended={handleCancelExtended}
+            onResetExtended={handleResetExtended}
           />
         )}
 
