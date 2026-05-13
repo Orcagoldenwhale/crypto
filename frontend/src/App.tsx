@@ -772,6 +772,12 @@ export default function App() {
       setBacktestZones(zones);
       setBacktestReport(report);
       setExtendedCandleCountActive(candleCount);
+      // Сигналы и текущая позиция viewport'а — со старой 7-дневной выборки.
+      // Сбрасываем, иначе пользователь видит «ту же картинку», просто над
+      // последними 7 днями — и не понимает что данных стало больше.
+      setSignals([]);
+      setSelectedSignalId(null);
+      requestAnimationFrame(() => viewportApiRef.current?.resetView());
       setExtendedProgress(null);
       setExtendedRunning(false);
       extendedAbortRef.current = null;
