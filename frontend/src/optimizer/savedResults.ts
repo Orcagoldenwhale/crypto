@@ -9,7 +9,8 @@
 import type { BacktestReport, BacktestSettings } from '@/backtest/types';
 import type { SmcLayers, SmcOptions } from '@/engine/smc/types';
 import type { TfPairId } from '@/types';
-import type { OptimizerMetric, OptimizerResult, OptimizerSettings } from './types';
+import type { OptimizerMetric, OptimizerResult, OptimizerSettings, OptimizerSpecs } from './types';
+import { DEFAULT_OPTIMIZER_SETTINGS } from './types';
 
 export interface SavedResultSummary {
   totalTrades: number;
@@ -91,7 +92,24 @@ export function loadOptimizerDefaults(): OptimizerSettings | null {
   try {
     const raw = window.localStorage.getItem(DEFAULTS_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as OptimizerSettings;
+    const parsed = JSON.parse(raw) as OptimizerSettings;
+    // Forward-compat: если в новой версии добавились SmcKey/BacktestKey/DataKey
+    // которых в сохранённых defaults НЕТ — мержим из DEFAULT_OPTIMIZER_SETTINGS,
+    // иначе ParamRow упадёт на `spec.enabled` undefined. Сохранённые значения
+    // юзера приоритетней дефолта.
+    const mergedSpecs = { ...DEFAULT_OPTIMIZER_SETTINGS.specs } as OptimizerSpecs;
+    if (parsed.specs && typeof parsed.specs === 'object') {
+      for (const key of Object.keys(parsed.specs) as (keyof OptimizerSpecs)[]) {
+        if (mergedSpecs[key] && parsed.specs[key]) {
+          mergedSpecs[key] = parsed.specs[key];
+        }
+      }
+    }
+    return {
+      ...DEFAULT_OPTIMIZER_SETTINGS,
+      ...parsed,
+      specs: mergedSpecs,
+    };
   } catch {
     return null;
   }
