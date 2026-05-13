@@ -26,6 +26,7 @@ import { fetchVisionDataset, type ProgressInfo } from '@/data/visionLoader';
 import { loadDatasetFromFile, loadDatasetFromUrl } from '@/data/datasetLoader';
 import { loadPOIs, savePOIs, loadExtendedDataset, saveExtendedDataset } from '@/data/storage';
 import { devLog, devLogClear } from '@/dev/devLog';
+import { alignTrimForHtf } from '@/data/extendedTrim';
 import {
   createLiveCandleManager,
   type LiveCandleManager,
@@ -697,9 +698,13 @@ export default function App() {
       }
 
       setExtendedProgress({ stage: 'computing' });
-      // Берём ровно последние candleCount свечей: загружено может быть чуть больше,
-      // т.к. days считается с округлением вверх.
-      const trimmed = raw5m.length > candleCount ? raw5m.slice(-candleCount) : raw5m;
+      // Берём последние ~candleCount свечей, ВЫРОВНЕННЫЕ на HTF-границу.
+      // Простой slice(-candleCount) ломал aggregate5mTo15mLtf / aggregate5mTo1hLtf:
+      // первая свеча оказывалась мид-HTF (например 06:40), и агрегат давал
+      // 15m с timestamps 06:40/06:55/07:10 вместо реальных 06:45/07:00/07:15.
+      // Это смещало SMC-зоны относительно регулярного бэктеста и ломало
+      // сопоставимость результатов.
+      const trimmed = alignTrimForHtf(raw5m, candleCount, htfTf);
 
       // Применяем агрегацию под текущий ltfTf. Для HTF — тот же датасет,
       // агрегированный до htfTf; в single-режиме HTF == LTF.
