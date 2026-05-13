@@ -1685,6 +1685,9 @@ export default function App() {
               if (mult === undefined) return;
               setTickPref({ manual: mult });
             }}
+            onApplyTfPair={(nextTfPairId) => {
+              setTfPairId(nextTfPairId);
+            }}
             symbol={symbol}
             tfPairId={tfPairId}
           />

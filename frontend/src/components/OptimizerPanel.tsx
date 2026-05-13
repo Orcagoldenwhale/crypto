@@ -71,6 +71,14 @@ interface OptimizerPanelProps {
    * параметр не варьировался, ничего не менять.
    */
   onApplyMultiplier?: ((mult: 1 | 2 | 5 | 10 | undefined) => void) | undefined;
+  /**
+   * Применить TF-пару из сохранённого результата. Без этого «Применить»
+   * восстанавливает только BT/SMC/tick параметры, но если saved был
+   * сделан на 15m→5m а текущая пара 5m-single — overlay строится на
+   * другом TF и сделки получаются ДРУГИЕ. Optional: legacy-записи до
+   * 1.36.1 не имеют tfPairId, тогда callback не вызывается.
+   */
+  onApplyTfPair?: ((tfPairId: TfPairId) => void) | undefined;
   /** Текущая торговая пара (например BTCUSDT) — пишется в Saved/History. */
   symbol: string;
   /** Текущая TF-пара (1h-5m / 5m-5m / …) — пишется в Saved/History. */
@@ -167,6 +175,7 @@ export function OptimizerPanel({
   onApply,
   onApplySmc,
   onApplyMultiplier,
+  onApplyTfPair,
   symbol,
   tfPairId,
 }: OptimizerPanelProps) {
@@ -237,6 +246,13 @@ export function OptimizerPanel({
   };
 
   const applySaved = (s: SavedResult) => {
+    // ВАЖНО: TF-пару применяем ПЕРВОЙ. Смена TF-пары триггерит сброс
+    // signals/viewport (см. App.tsx tfPairId-useEffect). Если бы мы
+    // применили её после, последующая авто-перерисовка стёрла бы только
+    // что выставленные BT/SMC параметры с экрана.
+    if (onApplyTfPair && s.tfPairId && s.tfPairId !== tfPairId) {
+      onApplyTfPair(s.tfPairId);
+    }
     onApplySmc({ ...baseSmcOpts, ...s.smcParams });
     onApply({ ...baseSettings, ...s.btParams });
     if (onApplyMultiplier && s.dataParams.tickMultiplier !== undefined) {
