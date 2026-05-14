@@ -107,6 +107,17 @@ interface ChartCanvasProps {
   backtestTrades: readonly BacktestTrade[];
   /** Расширенные зоны бэктеста (с gap). */
   backtestZones: readonly SmcZoneRect[];
+  /**
+   * ID выбранной сделки (для подсветки на графике). null = ничего не выбрано,
+   * все сделки/зоны рисуются ровно. Если задано — выбранная сделка ярче,
+   * остальные приглушены.
+   */
+  selectedTradeId?: string | null;
+  /**
+   * ID зоны выбранной сделки — пробрасываем отдельно, чтобы не пересчитывать
+   * в рендере. App.tsx вычисляет lookup один раз по trade.zoneId.
+   */
+  selectedBacktestZoneId?: string | null;
 }
 
 export interface HoveredClusterInfo {
@@ -142,6 +153,8 @@ export function ChartCanvas({
   onViewportApi,
   backtestTrades,
   backtestZones,
+  selectedTradeId,
+  selectedBacktestZoneId,
 }: ChartCanvasProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mainCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -393,10 +406,23 @@ export function ChartCanvas({
 
       // Бэктест: зоны с gap и сделки (entry/stop/take).
       if (backtestZones && backtestZones.length > 0) {
-        renderBacktestZones({ ctx, metrics, viewport, zones: backtestZones });
+        renderBacktestZones({
+          ctx,
+          metrics,
+          viewport,
+          zones: backtestZones,
+          selectedZoneId: selectedBacktestZoneId ?? null,
+        });
       }
       if (backtestTrades && backtestTrades.length > 0) {
-        renderBacktestTrades({ ctx, metrics, viewport, trades: backtestTrades, chartTf });
+        renderBacktestTrades({
+          ctx,
+          metrics,
+          viewport,
+          trades: backtestTrades,
+          chartTf,
+          selectedTradeId: selectedTradeId ?? null,
+        });
       }
     });
     return () => {
@@ -422,6 +448,8 @@ export function ChartCanvas({
     smcOverlay,
     backtestTrades,
     backtestZones,
+    selectedTradeId,
+    selectedBacktestZoneId,
     liqUseBslSslLabels,
   ]);
 

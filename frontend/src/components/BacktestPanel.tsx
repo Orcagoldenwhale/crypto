@@ -18,7 +18,7 @@
  */
 
 import { useState, type ReactNode } from 'react';
-import { Play, Settings2, ChevronUp, ChevronDown, Zap, X } from 'lucide-react';
+import { Play, Settings2, ChevronUp, ChevronDown, Zap, X, List } from 'lucide-react';
 import type { BacktestSettings, BacktestReport } from '@/backtest/types';
 import {
   EXTENDED_CANDLE_OPTIONS,
@@ -53,6 +53,12 @@ interface BacktestPanelProps {
   onCancelExtended: () => void;
   /** Сбросить флаг extended; данные остаются до явной перезагрузки. */
   onResetExtended: () => void;
+  /**
+   * Открыть просмотрщик сделок (Trade Viewer): floating-карточка с
+   * навигацией prev/next по сделкам бэктеста. Кнопка отображается только
+   * когда в отчёте есть хотя бы одна сделка.
+   */
+  onOpenTradeViewer: () => void;
 }
 
 export function BacktestPanel({
@@ -67,6 +73,7 @@ export function BacktestPanel({
   extendedCandleCountActive,
   onCancelExtended,
   onResetExtended,
+  onOpenTradeViewer,
 }: BacktestPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [extendedCount, setExtendedCount] = useState<ExtendedCandleCount>(50000);
@@ -301,9 +308,10 @@ export function BacktestPanel({
                 report={report}
                 title={`Бэктест на ${extendedCandleCountActive.toLocaleString('ru-RU')} свечей (~${daysForCandles(extendedCandleCountActive)}д)`}
                 accent
+                onOpenTradeViewer={onOpenTradeViewer}
               />
             ) : (
-              <BacktestReportView report={report} />
+              <BacktestReportView report={report} onOpenTradeViewer={onOpenTradeViewer} />
             )
           )}
         </div>
@@ -444,10 +452,12 @@ function BacktestReportView({
   report,
   title,
   accent,
+  onOpenTradeViewer,
 }: {
   report: BacktestReport;
   title?: string;
   accent?: boolean;
+  onOpenTradeViewer?: () => void;
 }) {
   const wr = (report.winRate * 100).toFixed(1);
   // Считаем LONG/SHORT тут (а не в state) — данные уже в report.trades,
@@ -497,6 +507,17 @@ function BacktestReportView({
           <StatLine label="Открытые" value={String(report.openTrades)} color="text-amber-400" />
         )}
       </div>
+      {onOpenTradeViewer && report.totalTrades > 0 && (
+        <button
+          type="button"
+          onClick={onOpenTradeViewer}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded border border-tv-accent/40 bg-tv-accent/10 px-3 py-1 text-[11px] font-semibold text-tv-accent hover:bg-tv-accent/20"
+          title="Открыть карточку первой сделки. Внутри — переключение prev/next, подсветка сделки и зоны на графике."
+        >
+          <List className="h-3 w-3" />
+          Просмотр сделок
+        </button>
+      )}
     </div>
   );
 }

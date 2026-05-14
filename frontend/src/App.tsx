@@ -11,6 +11,7 @@ import {
 import { ZoneMenu } from '@/components/ZoneMenu';
 import { ScannerReport } from '@/components/ScannerReport';
 import { TradeDetailPanel } from '@/components/TradeDetailPanel';
+import { BacktestTradeViewerPanel } from '@/components/BacktestTradeViewerPanel';
 import { ClusterTooltip } from '@/components/ClusterTooltip';
 import { DropOverlay } from '@/components/DropOverlay';
 import { TfPairSelector } from '@/components/TfPairSelector';
@@ -64,7 +65,7 @@ import {
 import { OptimizerPanel } from '@/components/OptimizerPanel';
 import { HelpModal } from '@/components/HelpModal';
 import { runBacktest, collectZones, type SmcZoneRect } from '@/backtest/runBacktest';
-import type { BacktestSettings, BacktestReport as BacktestReportData } from '@/backtest/types';
+import type { BacktestSettings, BacktestReport as BacktestReportData, BacktestTrade } from '@/backtest/types';
 import { DEFAULT_BACKTEST_SETTINGS } from '@/backtest/types';
 import { candleDurationMs } from '@/engine/scale';
 import {
@@ -195,6 +196,12 @@ export default function App() {
   const [backtestRunning, setBacktestRunning] = useState(false);
   const [backtestZones, setBacktestZones] = useState<SmcZoneRect[]>([]);
   const [backtestSettings, setBacktestSettings] = useState<BacktestSettings>(DEFAULT_BACKTEST_SETTINGS);
+  /**
+   * ID активной сделки в Trade Viewer'е. null = вьювер закрыт, никакой
+   * подсветки на графике. Используется одновременно как «открыт ли вьювер»
+   * и как «какую сделку показывать» — одна сделка ↔ одна карточка.
+   */
+  const [selectedBacktestTradeId, setSelectedBacktestTradeId] = useState<string | null>(null);
 
   // Расширенный бэктест: загружает длинную Vision-выборку, ПОДМЕНЯЕТ
   // основной rawData5m и сразу прогоняет регулярный бэктест на ней.
@@ -595,6 +602,8 @@ export default function App() {
         setBacktestZones(zones);
         setBacktestReport(report);
         setBacktestRunning(false);
+        // Новый прогон → старый выбор сделки больше не валиден.
+        setSelectedBacktestTradeId(null);
 
         // Диагностика: каждый прогон регулярного бэктеста пишется в dev-log.
         // Полезно когда сделки не сходятся с ожидаемыми — сразу видно
@@ -880,6 +889,7 @@ export default function App() {
       // последними 7 днями — и не понимает что данных стало больше.
       setSignals([]);
       setSelectedSignalId(null);
+      setSelectedBacktestTradeId(null);
       requestAnimationFrame(() => viewportApiRef.current?.resetView());
       setExtendedProgress(null);
       setExtendedRunning(false);
@@ -1418,6 +1428,100 @@ export default function App() {
     [sortedSignals, selectedSignalId, chartView, isSingleTf, signalFocusPadMs],
   );
 
+  /**
+   * Выбранная сделка + связанные данные для Trade Viewer'а.
+   * Все три мемо в одном блоке, потому что зависят от одного и того же
+   * `selectedBacktestTradeId` — пересчёт сразу всех, когда смена сделки.
+   */
+  const selectedBacktestTrade = useMemo(() => {
+    if (!selectedBacktestTradeId) return null;
+    return backtestReport?.trades.find((t) => t.id === selectedBacktestTradeId) ?? null;
+  }, [selectedBacktestTradeId, backtestReport]);
+
+  const selectedBacktestZone = useMemo(() => {
+    if (!selectedBacktestTrade) return null;
+    return backtestZones.find((z) => z.id === selectedBacktestTrade.zoneId) ?? null;
+  }, [selectedBacktestTrade, backtestZones]);
+
+  /** Entry-свеча по timestamp — для подсчёта диагностики 4 правил в карточке. */
+  const selectedBacktestEntryCandle = useMemo(() => {
+    if (!selectedBacktestTrade) return null;
+    return (
+      (ltfData as Candle5m[]).find((c) => c.timestamp === selectedBacktestTrade.entryTime) ??
+      null
+    );
+  }, [selectedBacktestTrade, ltfData]);
+
+  const selectedBacktestTradeIndex = useMemo(() => {
+    if (!selectedBacktestTrade || !backtestReport) return -1;
+    return backtestReport.trades.findIndex((t) => t.id === selectedBacktestTrade.id);
+  }, [selectedBacktestTrade, backtestReport]);
+
+  /**
+   * Сфокусировать график на entry сделки: при необходимости переключить
+   * на LTF (на HTF маркеры сделок не видны) + центрировать viewport на
+   * entryTime. Выделено в хелпер, чтобы и open, и prev/next делали ровно
+   * одно и то же.
+   *
+   * NB: не useEffect, потому что setState внутри effect → cascading renders
+   * (react-hooks/set-state-in-effect). Здесь это event-handler — set'ы
+   * корректны.
+   */
+  const focusChartOnTrade = useCallback(
+    (trade: BacktestTrade) => {
+      if (chartView === 'htf') {
+        setChartView('ltf');
+        setTool('pointer');
+      }
+      requestAnimationFrame(() => {
+        viewportApiRef.current?.zoomToTimeRange(
+          trade.entryTime - signalFocusPadMs,
+          trade.entryTime + signalFocusPadMs,
+        );
+      });
+    },
+    [chartView, signalFocusPadMs],
+  );
+
+  /**
+   * Trade Viewer: открыть карточку первой сделки. Кнопка «Просмотр сделок»
+   * в BacktestPanel — мгновенно подсвечивает первую сделку и пансирует
+   * график на её entry.
+   */
+  const handleOpenBacktestTradeViewer = useCallback(() => {
+    const trades = backtestReport?.trades;
+    if (!trades || trades.length === 0) return;
+    const first = trades[0]!;
+    setSelectedBacktestTradeId(first.id);
+    focusChartOnTrade(first);
+  }, [backtestReport, focusChartOnTrade]);
+
+  /** Закрыть Trade Viewer и снять подсветку с графика. */
+  const handleCloseBacktestTradeViewer = useCallback(() => {
+    setSelectedBacktestTradeId(null);
+  }, []);
+
+  /** Переключить активную сделку (prev/next, циклически) + пансировать график. */
+  const handleNavigateBacktestTrade = useCallback(
+    (dir: -1 | 1) => {
+      const trades = backtestReport?.trades;
+      if (!trades || trades.length === 0) return;
+      const curIdx = selectedBacktestTradeId
+        ? trades.findIndex((t) => t.id === selectedBacktestTradeId)
+        : -1;
+      const nextIdx =
+        curIdx === -1
+          ? dir === 1
+            ? 0
+            : trades.length - 1
+          : (curIdx + dir + trades.length) % trades.length;
+      const next = trades[nextIdx]!;
+      setSelectedBacktestTradeId(next.id);
+      focusChartOnTrade(next);
+    },
+    [backtestReport, selectedBacktestTradeId, focusChartOnTrade],
+  );
+
   const handleClearAll = useCallback(() => {
     if (zones.length === 0) return;
     if (!window.confirm(`Удалить все зоны (${zones.length})?`)) return;
@@ -1740,6 +1844,8 @@ export default function App() {
           onViewportApi={handleViewportApi}
           backtestTrades={backtestReport?.trades ?? []}
           backtestZones={backtestZones}
+          selectedTradeId={selectedBacktestTradeId}
+          selectedBacktestZoneId={selectedBacktestTrade?.zoneId ?? null}
         />
 
         {/* Popover настроек SMC (открывается из Toolbox по шестерёнке) */}
@@ -1770,6 +1876,7 @@ export default function App() {
             extendedCandleCountActive={extendedCandleCountActive}
             onCancelExtended={handleCancelExtended}
             onResetExtended={handleResetExtended}
+            onOpenTradeViewer={handleOpenBacktestTradeViewer}
           />
         )}
 
@@ -1914,6 +2021,21 @@ export default function App() {
             />
           );
         })()}
+
+        {/* Карточка выбранной backtest-сделки (справа-внизу). Подсветка
+            сделки + её зоны на графике уже включена через пропы ChartCanvas. */}
+        {selectedBacktestTrade && backtestReport && selectedBacktestTradeIndex !== -1 && (
+          <BacktestTradeViewerPanel
+            trade={selectedBacktestTrade}
+            entryCandle={selectedBacktestEntryCandle}
+            zone={selectedBacktestZone}
+            index={selectedBacktestTradeIndex + 1}
+            total={backtestReport.trades.length}
+            onClose={handleCloseBacktestTradeViewer}
+            onPrev={() => handleNavigateBacktestTrade(-1)}
+            onNext={() => handleNavigateBacktestTrade(1)}
+          />
+        )}
 
         {/* Тултип по кластеру (footprint-режим). Позиционируется по clientX/Y,
             поэтому рендерится последним поверх всего, кроме модальных окон. */}
