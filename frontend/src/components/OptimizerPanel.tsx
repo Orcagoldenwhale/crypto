@@ -113,6 +113,7 @@ const PARAM_LABELS: Record<OptimizableKey, string> = {
   reentryAfterWin: 'Перезаход после win',
   slBehindObWick: 'SL за фитилём OB',
   slBehindFvgEdge: 'SL за дальней границей FVG',
+  slBehindSwing: 'SL за свингом',
   validityByMt: 'Валидность по MT',
   entryPoint: 'Точка входа',
   // SMC
@@ -152,8 +153,8 @@ const SECTIONS: SectionConfig[] = [
     keys: [
       'stopPct', 'rewardRatio', 'zoneGapPct', 'maxReentries',
       'minFvgPct', 'maxCandleBodyPct', 'fvgMaxLifetimeCandles',
-      'reentryAfterWin', 'slBehindObWick', 'slBehindFvgEdge', 'validityByMt',
-      'entryPoint',
+      'reentryAfterWin', 'slBehindObWick', 'slBehindFvgEdge', 'slBehindSwing',
+      'validityByMt', 'entryPoint',
     ],
   },
   {

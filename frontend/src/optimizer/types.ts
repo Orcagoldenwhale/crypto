@@ -49,6 +49,7 @@ export type BacktestKey =
   | 'reentryAfterWin'
   | 'slBehindObWick'
   | 'slBehindFvgEdge'
+  | 'slBehindSwing'
   | 'validityByMt'
   | 'entryPoint';
 
@@ -174,6 +175,7 @@ export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
     reentryAfterWin: { type: 'bool', enabled: false, bothValues: true },
     slBehindObWick: { type: 'bool', enabled: false, bothValues: true },
     slBehindFvgEdge: { type: 'bool', enabled: false, bothValues: true },
+    slBehindSwing: { type: 'bool', enabled: false, bothValues: true },
     validityByMt: { type: 'bool', enabled: false, bothValues: true },
     entryPoint: { type: 'enum', enabled: false, values: ['close', 'mt', 'wick'] },
     // ===== SMC =====

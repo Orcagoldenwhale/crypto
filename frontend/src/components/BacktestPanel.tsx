@@ -116,6 +116,12 @@ export function BacktestPanel({
                 checked={settings.slBehindFvgEdge}
                 onChange={(v) => update('slBehindFvgEdge', v)}
               />
+              <Toggle
+                label="SL за свингом"
+                hint="кандидат на SL = последний подтверждённый swing-low (LONG) / swing-high (SHORT) на LTF. Применяется ближайший из (stopPct, фитиль зоны, свинг)"
+                checked={settings.slBehindSwing}
+                onChange={(v) => update('slBehindSwing', v)}
+              />
             </Section>
 
             <Section title="Зоны и фильтры">

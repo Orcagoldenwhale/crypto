@@ -387,6 +387,184 @@ describe('runBacktest', () => {
     expect(report.trades[0]!.stopPrice).toBe(99);
   });
 
+  describe('slBehindSwing', () => {
+    /**
+     * Раскладка свечей: swing-LOW при idx=3 (low=99.8 — строго ниже всех
+     * соседей в окне ±3). Сигнал LONG на idx=7. К моменту idx=7 свинг
+     * подтверждён (3+3=6 < 7), его можно использовать как кандидата на SL.
+     *
+     * Зона — bull OB, перекрывает диапазон сигнальной свечи.
+     */
+    function setupLongSwingScenario(): { overlay: SmcOverlay; candles: Candle5m[] } {
+      const overlay: SmcOverlay = {
+        fvgs: [],
+        liquidity: [],
+        structure: [],
+        orderBlocks: [{
+          id: 'ob1',
+          kind: 'bull',
+          obTime: T0,
+          startTime: T0,
+          endTime: T0 + MS5 * 20,
+          minPrice: 99,
+          maxPrice: 101.5,
+          mtPrice: 100.25,
+          openPrice: 101,
+          hasFvg: false,
+          unmitigated: true,
+          breakKind: 'BOS',
+        }],
+        breakerBlocks: [],
+        rejectionBlocks: [],
+        prevDayLevels: [],
+        compressions: [],
+      };
+      const candles: Candle5m[] = [
+        makeCandle(T0,            100,   100.5, 100,   100.2, 0,  100.2, 0, 0),
+        makeCandle(T0 + MS5,      100.2, 100.7, 100.1, 100.5, 0,  100.5, 0, 0),
+        makeCandle(T0 + MS5 * 2,  100.5, 100.8, 100.2, 100.4, 0,  100.4, 0, 0),
+        makeCandle(T0 + MS5 * 3,  100.4, 100.5, 99.8,  100,   0,  100,   0, 0), // swing-LOW
+        makeCandle(T0 + MS5 * 4,  100,   100.4, 100,   100.3, 0,  100.3, 0, 0),
+        makeCandle(T0 + MS5 * 5,  100.3, 100.5, 100.2, 100.4, 0,  100.4, 0, 0),
+        makeCandle(T0 + MS5 * 6,  100.4, 100.6, 100.3, 100.5, 0,  100.5, 0, 0),
+        // idx 7: signal LONG, entry=100.8, low=99.5 (но ниже swing — для SL это ok)
+        makeCandle(T0 + MS5 * 7,  100.5, 101,   99.5,  100.8, 10, 100.4, -5, 2),
+        makeCandle(T0 + MS5 * 8,  100.8, 108,   100,   107,   5,  104,   -1, 1),
+      ];
+      return { overlay, candles };
+    }
+
+    it('LONG: swing-low побеждает pctSl (свинг ближе к entry)', () => {
+      const { overlay, candles } = setupLongSwingScenario();
+      // stopPct=1% даёт pctSl=99.792; swing-low=99.8 — ближе к entry=100.8.
+      const settings: BacktestSettings = {
+        ...DEFAULT_BACKTEST_SETTINGS,
+        stopPct: 1,
+        zoneGapPct: 0,
+        fvgMaxFillPct: 100,
+        slBehindSwing: true,
+      };
+      const report = runBacktest(candles, overlay, settings);
+      expect(report.totalTrades).toBe(1);
+      expect(report.trades[0]!.stopPrice).toBe(99.8);
+    });
+
+    it('LONG: pctSl побеждает swing (свинг слишком глубокий)', () => {
+      const { overlay, candles } = setupLongSwingScenario();
+      // stopPct=0.3% даёт pctSl≈100.4976; swing-low=99.8 — дальше → pctSl wins.
+      const settings: BacktestSettings = {
+        ...DEFAULT_BACKTEST_SETTINGS,
+        stopPct: 0.3,
+        zoneGapPct: 0,
+        fvgMaxFillPct: 100,
+        slBehindSwing: true,
+      };
+      const report = runBacktest(candles, overlay, settings);
+      expect(report.totalTrades).toBe(1);
+      expect(report.trades[0]!.stopPrice).toBeCloseTo(100.4976, 3);
+    });
+
+    it('SHORT: swing-high побеждает pctSl (зеркальная логика)', () => {
+      const overlay: SmcOverlay = {
+        fvgs: [],
+        liquidity: [],
+        structure: [],
+        orderBlocks: [{
+          id: 'ob1',
+          kind: 'bear',
+          obTime: T0,
+          startTime: T0,
+          endTime: T0 + MS5 * 20,
+          minPrice: 98,
+          maxPrice: 99.5,
+          mtPrice: 98.75,
+          openPrice: 98,
+          hasFvg: false,
+          unmitigated: true,
+          breakKind: 'BOS',
+        }],
+        breakerBlocks: [],
+        rejectionBlocks: [],
+        prevDayLevels: [],
+        compressions: [],
+      };
+      const candles: Candle5m[] = [
+        makeCandle(T0,            99.2, 99.3, 99,   99.1, 0,   99.1, 0, 0),
+        makeCandle(T0 + MS5,      99.1, 99.4, 99,   99.2, 0,   99.2, 0, 0),
+        makeCandle(T0 + MS5 * 2,  99.2, 99.4, 99.1, 99.3, 0,   99.3, 0, 0),
+        makeCandle(T0 + MS5 * 3,  99.3, 99.5, 99.2, 99.4, 0,   99.4, 0, 0), // swing-HIGH (h=99.5)
+        makeCandle(T0 + MS5 * 4,  99.4, 99.4, 99.2, 99.3, 0,   99.3, 0, 0),
+        makeCandle(T0 + MS5 * 5,  99.3, 99.4, 99.1, 99.2, 0,   99.2, 0, 0),
+        makeCandle(T0 + MS5 * 6,  99.2, 99.4, 99,   99.1, 0,   99.1, 0, 0),
+        // idx 7: signal SHORT (close<mid, delta<0, close<vpoc, delta_at_high>0)
+        makeCandle(T0 + MS5 * 7,  99.1, 99.3, 98,   98.5, -10, 99,   2, 5),
+        makeCandle(T0 + MS5 * 8,  98.5, 98.7, 92,   93,   -5,  96,   -1, 0),
+      ];
+      // stopPct=3% даёт pctSl≈101.455; swing-high=99.5 — ближе к entry=98.5.
+      const settings: BacktestSettings = {
+        ...DEFAULT_BACKTEST_SETTINGS,
+        stopPct: 3,
+        zoneGapPct: 0,
+        fvgMaxFillPct: 100,
+        maxCandleBodyPct: 0, // отключаем фильтр (тело сигнала ~0.4% — может задеть)
+        slBehindSwing: true,
+      };
+      const report = runBacktest(candles, overlay, settings);
+      expect(report.totalTrades).toBe(1);
+      expect(report.trades[0]!.type).toBe('SHORT');
+      expect(report.trades[0]!.stopPrice).toBe(99.5);
+    });
+
+    it('lookahead-safe: свинг сразу перед сигналом (не подтверждён) — fallback на pctSl', () => {
+      // Сигнал в idx=4, swing-LOW в idx=3 → 3+3=6 ≥ 4, свинг ещё не сформирован.
+      // SL = pctSl, никаких подсматриваний в будущее.
+      const overlay: SmcOverlay = {
+        fvgs: [],
+        liquidity: [],
+        structure: [],
+        orderBlocks: [{
+          id: 'ob1',
+          kind: 'bull',
+          obTime: T0,
+          startTime: T0,
+          endTime: T0 + MS5 * 20,
+          minPrice: 99,
+          maxPrice: 101.5,
+          mtPrice: 100.25,
+          openPrice: 101,
+          hasFvg: false,
+          unmitigated: true,
+          breakKind: 'BOS',
+        }],
+        breakerBlocks: [],
+        rejectionBlocks: [],
+        prevDayLevels: [],
+        compressions: [],
+      };
+      const candles: Candle5m[] = [
+        makeCandle(T0,            100,   100.5, 100,   100.2, 0,  100.2, 0, 0),
+        makeCandle(T0 + MS5,      100.2, 100.7, 100.1, 100.5, 0,  100.5, 0, 0),
+        makeCandle(T0 + MS5 * 2,  100.5, 100.8, 100.2, 100.4, 0,  100.4, 0, 0),
+        makeCandle(T0 + MS5 * 3,  100.4, 100.5, 99.8,  100,   0,  100,   0, 0), // swing-LOW (но ещё не известен на idx=4)
+        // idx 4: signal LONG
+        makeCandle(T0 + MS5 * 4,  100,   101,   99.5,  100.8, 10, 100.4, -5, 2),
+        makeCandle(T0 + MS5 * 5,  100.8, 105,   100,   104,   5,  102,   -1, 1),
+        makeCandle(T0 + MS5 * 6,  104,   105,   103,   104,   0,  104,   0, 0),
+      ];
+      const settings: BacktestSettings = {
+        ...DEFAULT_BACKTEST_SETTINGS,
+        stopPct: 1,
+        zoneGapPct: 0,
+        fvgMaxFillPct: 100,
+        slBehindSwing: true,
+      };
+      const report = runBacktest(candles, overlay, settings);
+      expect(report.totalTrades).toBe(1);
+      // pctSl = 100.8 - 100.8 * 0.01 = 99.792 (swing-low не виден, fallback).
+      expect(report.trades[0]!.stopPrice).toBeCloseTo(99.792, 3);
+    });
+  });
+
   describe('fvgMaxLifetimeCandles', () => {
     function setupOldFvgScenario(): {
       overlay: SmcOverlay;

@@ -3,6 +3,78 @@ import type { Candle5m, Price, TimestampMs } from '@/types';
 import type { SmcOverlay } from '@/engine/smc/types';
 import type { BacktestSettings, BacktestReport, BacktestTrade } from './types';
 
+/**
+ * Окно подтверждения свинга для slBehindSwing (lookback по обе стороны).
+ * 3 — стандартная SMC-конвенция для свингов на LTF; жёстко зашито, чтобы не
+ * плодить параметры (если позже потребуется варьировать — выносим в settings).
+ */
+const SWING_LOOKBACK = 3;
+
+interface SwingPoint {
+  /** Индекс свечи-свинга в массиве candles. */
+  index: number;
+  /** low (для swing-low) или high (для swing-high) свечи. */
+  price: number;
+}
+
+/**
+ * Пред-расчёт всех свингов на LTF-свечах одним проходом.
+ * Свинг = строгое >/< по обе стороны (плато не считается свингом —
+ * та же конвенция, что в detectLiquidity / detectStructure).
+ */
+function findSwings(
+  candles: readonly Candle5m[],
+  lookback: number,
+): { lows: SwingPoint[]; highs: SwingPoint[] } {
+  const lows: SwingPoint[] = [];
+  const highs: SwingPoint[] = [];
+  for (let i = lookback; i < candles.length - lookback; i++) {
+    const c = candles[i]!;
+    let isLow = true;
+    let isHigh = true;
+    for (let k = i - lookback; k <= i + lookback; k++) {
+      if (k === i) continue;
+      const o = candles[k]!;
+      if (o.low <= c.low) isLow = false;
+      if (o.high >= c.high) isHigh = false;
+      if (!isLow && !isHigh) break;
+    }
+    if (isLow) lows.push({ index: i, price: c.low });
+    if (isHigh) highs.push({ index: i, price: c.high });
+  }
+  return { lows, highs };
+}
+
+/**
+ * Возвращает цену последнего ПОДТВЕРЖДЁННОГО свинга, удовлетворяющего
+ * направлению сделки и расположению относительно entry:
+ *   - LONG  → swing-low с price < entry (защищаем минимум снизу);
+ *   - SHORT → swing-high с price > entry.
+ *
+ * Подтверждение: `swing.index + lookback < entryIdx` — между свингом и
+ * entry-свечой прошло достаточно баров, чтобы свинг был «известен».
+ * Это lookahead-safe.
+ *
+ * null = подходящего свинга не нашлось (slBehindSwing просто не даст
+ * кандидата, останутся pctSl/wickSl).
+ */
+function findSwingSl(
+  swings: readonly SwingPoint[],
+  entryIdx: number,
+  entryPrice: Price,
+  lookback: number,
+  side: 'low' | 'high',
+): Price | null {
+  for (let s = swings.length - 1; s >= 0; s--) {
+    const sw = swings[s]!;
+    if (sw.index + lookback >= entryIdx) continue;
+    if (side === 'low' ? sw.price < entryPrice : sw.price > entryPrice) {
+      return sw.price;
+    }
+  }
+  return null;
+}
+
 export interface SmcZoneRect {
   id: string;
   startTime: TimestampMs;
@@ -223,6 +295,13 @@ export function runBacktest(
     ? candles[1]!.timestamp - candles[0]!.timestamp
     : 5 * 60 * 1000;
 
+  // Пред-расчёт свингов для slBehindSwing. Считаем всегда (дёшево, O(n) при
+  // фиксированном lookback) — даёт стабильную структуру независимо от того,
+  // включён ли toggle. Если выключен — массивы просто не используются.
+  const swings = settings.slBehindSwing
+    ? findSwings(candles, SWING_LOOKBACK)
+    : { lows: [], highs: [] };
+
   for (let i = 0; i < candles.length; i++) {
     const candle = candles[i]!;
 
@@ -325,7 +404,7 @@ export function runBacktest(
       // ---- Stop-loss ----
       // Собираем все актуальные кандидаты на SL и выбираем БЛИЖАЙШИЙ к entry
       // (минимальное расстояние). Так stopPct работает как верхний предел
-      // риска, а wick-SL не уводит стоп дальше чем нужно.
+      // риска, а wick-SL / swing-SL не уводят стоп дальше чем нужно.
       const stopOffset = entryPrice * (settings.stopPct / 100);
       const pctSl: Price = type === 'LONG'
         ? entryPrice - stopOffset
@@ -335,13 +414,25 @@ export function runBacktest(
       const wickSl: Price | null = (useObSl || useFvgSl)
         ? (type === 'LONG' ? zone.minPrice : zone.maxPrice)
         : null;
+      const swingSl: Price | null = settings.slBehindSwing
+        ? findSwingSl(
+            type === 'LONG' ? swings.lows : swings.highs,
+            i,
+            entryPrice,
+            SWING_LOOKBACK,
+            type === 'LONG' ? 'low' : 'high',
+          )
+        : null;
       // Для LONG ближайший SL ниже entry = с НАИБОЛЬШЕЙ ценой.
       // Для SHORT ближайший SL выше entry = с НАИМЕНЬШЕЙ ценой.
-      const stopPrice: Price = wickSl === null
-        ? pctSl
-        : type === 'LONG'
-          ? Math.max(pctSl, wickSl)
-          : Math.min(pctSl, wickSl);
+      // pctSl присутствует всегда, wickSl/swingSl — опциональны.
+      let stopPrice: Price = pctSl;
+      if (wickSl !== null) {
+        stopPrice = type === 'LONG' ? Math.max(stopPrice, wickSl) : Math.min(stopPrice, wickSl);
+      }
+      if (swingSl !== null) {
+        stopPrice = type === 'LONG' ? Math.max(stopPrice, swingSl) : Math.min(stopPrice, swingSl);
+      }
 
       // ---- Take-profit от актуального риска ----
       const risk = Math.abs(entryPrice - stopPrice);

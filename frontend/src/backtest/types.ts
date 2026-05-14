@@ -54,6 +54,15 @@ export interface BacktestSettings {
    */
   slBehindFvgEdge: boolean;
   /**
+   * Если true — кандидат на SL = последний подтверждённый свинг на
+   * том же ТФ, где входим (на параметре candles функции runBacktest):
+   *   - LONG  → последний swing-low с price < entry
+   *   - SHORT → последний swing-high с price > entry
+   * Свинг определяется по lookback=3 (строгое >/< по обе стороны).
+   * Применяется ближайший из (stopPct, фитиль зоны, свинг).
+   */
+  slBehindSwing: boolean;
+  /**
    * Если true — OB остаётся валидным для входа пока тело свечи не
    * закрылось за Mean Threshold (50% тела OB). При закрытии тела за MT
    * зона выключается, независимо от maxReentries/fvgMaxFillPct.
@@ -75,6 +84,7 @@ export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
   entryPoint: 'close',
   slBehindObWick: false,
   slBehindFvgEdge: false,
+  slBehindSwing: false,
   validityByMt: false,
 };
 
