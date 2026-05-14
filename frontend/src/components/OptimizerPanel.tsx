@@ -19,6 +19,12 @@ import type { BacktestSettings } from '@/backtest/types';
 import type { SmcLayers, SmcOptions } from '@/engine/smc/types';
 import type { TfPairId } from '@/types';
 import { TF_PAIR_OPTIONS } from '@/data/tfPairs';
+import {
+  EXTENDED_CANDLE_OPTIONS,
+  daysForCandles,
+  type ExtendedCandleCount,
+  type ExtendedProgress,
+} from '@/components/BacktestPanelExtended';
 import type { PreparedData } from '@/optimizer/runOptimizer';
 import {
   loadOptimizerDefaults,
@@ -106,6 +112,21 @@ interface OptimizerPanelProps {
    * закрыть модалку и нажать «Запустить».
    */
   onApplyComplete?: (mergedSettings: BacktestSettings) => void;
+  /**
+   * Текущая активная extended-выборка. null = на 7-дневном prebuilt-датасете.
+   * Если выбрано (10000/25000/50000/100000) — оптимизатор крутится на этом
+   * окне 5m свечей, загруженном из Vision.
+   */
+  currentScope: ExtendedCandleCount | null;
+  /**
+   * Сменить scope: грузит Vision (или берёт из кэша), потом prepareData
+   * начинает отдавать новую выборку.
+   */
+  onChangeScope: (n: ExtendedCandleCount) => void;
+  /** Идёт ли загрузка Vision для нового scope (показываем прогресс в шапке). */
+  scopeLoading: boolean;
+  /** Прогресс загрузки Vision — те же поля что extendedProgress в BacktestPanel. */
+  scopeProgress: ExtendedProgress | null;
 }
 
 const PARAM_LABELS: Record<OptimizableKey, string> = {
@@ -223,6 +244,10 @@ export function OptimizerPanel({
   symbol,
   tfPairId,
   onApplyComplete,
+  currentScope,
+  onChangeScope,
+  scopeLoading,
+  scopeProgress,
 }: OptimizerPanelProps) {
   const [optSettings, setOptSettings] = useState<OptimizerSettings>(
     () => loadOptimizerDefaults() ?? DEFAULT_OPTIMIZER_SETTINGS,
@@ -352,6 +377,21 @@ export function OptimizerPanel({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [running, onClose]);
+
+  /**
+   * Смена scope (35д ↔ 87д ↔ 174д ↔ 348д) = другой датасет = другие overlay =
+   * результаты прошлого прогона невалидны. Чистим results / pausedSnapshot /
+   * progress, чтобы пользователь не пытался «Применить» цифры с другого окна.
+   * Используем ref для отслеживания смены (не reset'аем на mount).
+   */
+  const prevScopeRef = useRef(currentScope);
+  useEffect(() => {
+    if (prevScopeRef.current === currentScope) return;
+    prevScopeRef.current = currentScope;
+    setResults([]);
+    setPausedSnapshot(null);
+    setProgress({ done: 0, total: 0, best: null });
+  }, [currentScope]);
 
   const total = useMemo(() => countCombinations(optSettings.specs), [optSettings.specs]);
 
@@ -849,6 +889,44 @@ export function OptimizerPanel({
                 История ({history.length})
               </button>
             </div>
+            {/* Окно (scope) — выборка, на которой крутится оптимизатор. */}
+            {view === 'optimizer' && (
+              <label
+                className="flex items-center gap-1.5 text-[10px] text-tv-text-muted"
+                title={
+                  currentScope === null
+                    ? 'Сейчас 7д prebuilt. Выбери 35д+ → подгрузится Vision, оптимизатор будет крутиться на этом окне.'
+                    : 'Текущая выборка из Vision. Поменяй чтобы переключиться (кэш переиспользуется).'
+                }
+              >
+                Окно
+                <select
+                  value={currentScope === null ? 'current' : String(currentScope)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === 'current') return;
+                    onChangeScope(Number(v) as ExtendedCandleCount);
+                  }}
+                  disabled={running || scopeLoading}
+                  className="rounded border border-tv-border bg-tv-bg-deep px-1 py-0.5 text-[10px] text-tv-text outline-none focus:border-tv-accent disabled:opacity-40"
+                >
+                  {currentScope === null && (
+                    <option value="current">7д (текущий)</option>
+                  )}
+                  {EXTENDED_CANDLE_OPTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {daysForCandles(n)}д ({n.toLocaleString('ru-RU')})
+                    </option>
+                  ))}
+                </select>
+                {scopeLoading && (
+                  <span className="text-[9px] text-amber-400">
+                    {scopeProgress?.label ?? 'загрузка…'}
+                  </span>
+                )}
+              </label>
+            )}
+
             {/* Метрика и Top-N — только во вкладке оптимизатора */}
             {view === 'optimizer' && (
               <>
@@ -1010,11 +1088,12 @@ export function OptimizerPanel({
                     <button
                       type="button"
                       onClick={() => handleRun()}
-                      disabled={total === 0}
+                      disabled={total === 0 || scopeLoading}
                       className="flex w-full items-center justify-center gap-1.5 rounded bg-tv-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-tv-accent-hover disabled:opacity-40"
+                      title={scopeLoading ? 'Дождитесь загрузки Vision для выбранного окна' : undefined}
                     >
                       <Play className="h-3.5 w-3.5" />
-                      Запустить оптимизацию
+                      {scopeLoading ? 'Грузим данные…' : 'Запустить оптимизацию'}
                     </button>
                   )
                 ) : (

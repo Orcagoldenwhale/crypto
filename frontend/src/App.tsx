@@ -967,6 +967,26 @@ export default function App() {
     setExtendedCandleCountActive(null);
   }, []);
 
+  /**
+   * Optimizer scope: пользователь выбрал новое окно из шапки оптимизатора.
+   * Триггерит ровно тот же путь, что и кнопка «Прогнать N свечей» в
+   * BacktestPanel — handleRunExtended (с кэшем visionDays / extendedDatasets).
+   *
+   * Побочка: в конце handleRunExtended прогоняет обычный backtest на новой
+   * выборке и записывает его в backtestReport. Это норм — пользователь сразу
+   * увидит результат на новой scope если закроет оптимизатор.
+   *
+   * No-op если уже на этом scope (защита от лишних перезагрузок при
+   * случайных onChange).
+   */
+  const handleChangeOptimizerScope = useCallback(
+    (n: ExtendedCandleCount) => {
+      if (extendedCandleCountActive === n) return;
+      handleRunExtended(backtestSettings, n);
+    },
+    [extendedCandleCountActive, handleRunExtended, backtestSettings],
+  );
+
   // ============================================================================
   // Live-режим: старт/стоп, авто-остановка при смене символа.
   //
@@ -1990,6 +2010,10 @@ export default function App() {
             onApplyComplete={handleOptimizerApplyComplete}
             symbol={symbol}
             tfPairId={tfPairId}
+            currentScope={extendedCandleCountActive}
+            onChangeScope={handleChangeOptimizerScope}
+            scopeLoading={extendedRunning}
+            scopeProgress={extendedProgress}
           />
         )}
 
