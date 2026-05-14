@@ -58,6 +58,14 @@ export interface RunOptimizerArgs {
   pauseSignal?: AbortSignal;
   onProgress?: (p: OptimizerProgress) => void;
   onPause?: (snapshot: PauseSnapshot) => void;
+  /**
+   * Периодический чекпойнт — вызывается одновременно с onProgress, но
+   * передаёт ещё и текущий top-N. Используется для autosave прогона в
+   * localStorage: если вкладка крашнется без явной паузы, при следующем
+   * открытии можно будет возобновить ровно отсюда.
+   * top — shallow copy внутреннего массива, можно сохранять без боязни мутации.
+   */
+  onCheckpoint?: (snapshot: PauseSnapshot) => void;
 }
 
 export async function runOptimizer({
@@ -73,6 +81,7 @@ export async function runOptimizer({
   pauseSignal,
   onProgress,
   onPause,
+  onCheckpoint,
 }: RunOptimizerArgs): Promise<OptimizerResult[]> {
   const baseQuiet: BacktestSettings = { ...baseSettings, debugLog: false };
   const top: OptimizerResult[] = initialTop ? [...initialTop] : [];
@@ -170,6 +179,9 @@ export async function runOptimizer({
     const processedSoFar = i + 1;
     if (processedSoFar % CHUNK_SIZE === 0) {
       onProgress?.({ done: processedSoFar, total: ordered.length, bestScore });
+      // Чекпойнт — shallow copy чтобы consumer мог его сохранить без боязни,
+      // что следующая итерация мутирует массив.
+      onCheckpoint?.({ processed: processedSoFar, top: [...top] });
       await new Promise((r) => setTimeout(r, 0));
     }
   }

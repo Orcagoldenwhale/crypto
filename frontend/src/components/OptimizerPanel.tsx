@@ -42,6 +42,12 @@ import {
   slimResult,
   type RunHistoryEntry,
 } from '@/optimizer/runHistory';
+import {
+  clearAutosave,
+  loadAutosave,
+  saveAutosave,
+  type AutosaveEntry,
+} from '@/optimizer/autosave';
 import type { Combo } from '@/optimizer/generateGrid';
 import {
   DEFAULT_OPTIMIZER_SETTINGS,
@@ -298,6 +304,26 @@ export function OptimizerPanel({
     optSettings: OptimizerSettings;
   } | null>(null);
 
+  /**
+   * Autosave-снимок, найденный при открытии оптимизатора. null = ничего не
+   * сохранено / устарело / уже подобрано. Если не null — рисуется баннер
+   * «Найден прерванный прогон, возобновить?».
+   */
+  const [autosaveEntry, setAutosaveEntry] = useState<AutosaveEntry | null>(() =>
+    loadAutosave(),
+  );
+
+  /**
+   * Ожидающий resume из autosave, который требует сначала переключить scope.
+   * useEffect ниже срабатывает когда currentScope догнал нужное значение и
+   * запускает прогон с правильным startIndex/top.
+   *
+   * Хранится в ref + trigger-инкременте, а не в state — иначе setState
+   * внутри эффекта триггерит react-hooks/set-state-in-effect.
+   */
+  const pendingAutosaveResumeRef = useRef<AutosaveEntry | null>(null);
+  const [pendingAutosaveResumeTrigger, setPendingAutosaveResumeTrigger] = useState(0);
+
   const saveResult = (r: OptimizerResult) => {
     const snap = snapshotResult(r, optSettings.metric, { symbol, tfPairId, smcLayers });
     setSavedResults((prev) => {
@@ -511,6 +537,7 @@ export function OptimizerPanel({
     runStartRef.current = { startedAt: Date.now(), total: combos.length };
 
     let paused: { processed: number; top: OptimizerResult[] } | null = null;
+    const startedAtForAutosave = runStartRef.current!.startedAt;
     try {
       const found = await runOptimizer({
         prepareData,
@@ -525,6 +552,25 @@ export function OptimizerPanel({
         pauseSignal: pauseRef.current.signal,
         onProgress: (p) => setProgress({ done: p.done, total: p.total, best: p.bestScore }),
         onPause: (snap) => { paused = snap; },
+        // Каждый чекпойнт пишем autosave в localStorage — на случай краха
+        // вкладки без явной паузы/завершения. На finally эта запись будет
+        // снесена; останется только если функция НЕ дойдёт до finally.
+        // top через slimResult — без полного массива trades в каждом отчёте,
+        // иначе квота localStorage сразу кончится.
+        onCheckpoint: (snap) => {
+          saveAutosave({
+            startedAt: startedAtForAutosave,
+            updatedAt: Date.now(),
+            processed: snap.processed,
+            totalCombos: combos.length,
+            top: snap.top.map(slimResult),
+            optSettings: effectiveOptSettings,
+            symbol,
+            tfPairId,
+            smcLayers,
+            currentScope,
+          });
+        },
       });
       setResults(found);
 
@@ -623,6 +669,10 @@ export function OptimizerPanel({
       abortRef.current = null;
       pauseRef.current = null;
       runStartRef.current = null;
+      // Любое clean окончание (completed / paused / cancelled / throw)
+      // = состояние учтено в History. Чистим autosave чтобы banner не
+      // показывал «прерванный прогон» который на самом деле уже в истории.
+      clearAutosave();
     }
   };
 
@@ -672,6 +722,28 @@ export function OptimizerPanel({
       topN: opts.topN,
     });
 
+    /**
+     * Builder для autosave в sample mode. Stage 1 даёт `processed` от 0
+     * до samples.length, Stage 2 продолжает от samples.length. Totals тоже
+     * меняются: на Stage 1 это samples.length, на Stage 2 — samples + neighbors.
+     */
+    const makeAutosaveCheckpoint =
+      (offset: number, total: number) =>
+      (snap: { processed: number; top: OptimizerResult[] }) => {
+        saveAutosave({
+          startedAt,
+          updatedAt: Date.now(),
+          processed: offset + snap.processed,
+          totalCombos: total,
+          top: snap.top.map(slimResult),
+          optSettings: opts,
+          symbol,
+          tfPairId,
+          smcLayers,
+          currentScope,
+        });
+      };
+
     try {
       const stage1Top = await runOptimizer({
         prepareData,
@@ -682,6 +754,7 @@ export function OptimizerPanel({
         optSettings: opts,
         signal: ac.signal,
         onProgress: (p) => setProgress({ done: p.done, total: p.total, best: p.bestScore }),
+        onCheckpoint: makeAutosaveCheckpoint(0, samples.length),
       });
       if (ac.signal.aborted) {
         // Cancelled: записываем то что собрали, если есть.
@@ -738,6 +811,10 @@ export function OptimizerPanel({
             total: samples.length + p.total,
             best: p.bestScore,
           }),
+        onCheckpoint: makeAutosaveCheckpoint(
+          samples.length,
+          samples.length + neighborCombos.length,
+        ),
       });
       setResults(finalTop);
       devLog('optimizer:run-done', {
@@ -782,6 +859,7 @@ export function OptimizerPanel({
       abortRef.current = null;
       pauseRef.current = null;
       runStartRef.current = null;
+      clearAutosave();
     }
   };
 
@@ -789,6 +867,75 @@ export function OptimizerPanel({
     if (!running) return;
     pauseRef.current?.abort();
   };
+
+  /**
+   * Запустить прогон из autosave-записи. Используется и при «scope совпадает —
+   * запускай сразу», и при «scope догнал нужное значение через useEffect ниже».
+   */
+  const startAutosaveResume = (entry: AutosaveEntry) => {
+    setAutosaveEntry(null);
+    setOptSettings(entry.optSettings);
+    handleRun({
+      specs: entry.optSettings.specs,
+      startIndex: entry.processed,
+      initialTop: entry.top,
+      capturedOptSettings: entry.optSettings,
+    });
+  };
+
+  /**
+   * Кнопка «Возобновить» на autosave-баннере. Если текущий scope не совпадает
+   * с тем, что был при прерванном прогоне — заказываем переключение через
+   * onChangeScope и ждём в useEffect ниже. Если совпадает — запускаем сразу.
+   */
+  const handleResumeAutosave = () => {
+    if (!autosaveEntry) return;
+    if (autosaveEntry.currentScope === currentScope) {
+      startAutosaveResume(autosaveEntry);
+      return;
+    }
+    if (autosaveEntry.currentScope === null) {
+      // Сохранение было на 7д prebuilt, а сейчас extended активен. Reset
+      // обычно не перезагружает 7д-данные, поэтому без явного действия
+      // получится несовпадение — предупреждаем юзера, пусть закроет
+      // extended-режим в BacktestPanel вручную.
+      window.alert(
+        'Прерванный прогон был на 7-дневном датасете, а сейчас активна extended-выборка. Сначала вернись к 7д через BacktestPanel.',
+      );
+      return;
+    }
+    // Заказываем смену scope; useEffect ниже подхватит и запустит когда
+    // загрузка Vision закончится. Ref + trigger чтобы не плодить state в effect.
+    pendingAutosaveResumeRef.current = autosaveEntry;
+    setPendingAutosaveResumeTrigger((t) => t + 1);
+    setAutosaveEntry(null);
+    onChangeScope(autosaveEntry.currentScope as ExtendedCandleCount);
+  };
+
+  /** «Удалить» на баннере — забываем прерванный прогон. */
+  const handleDiscardAutosave = () => {
+    setAutosaveEntry(null);
+    clearAutosave();
+  };
+
+  /**
+   * Ждём пока currentScope догонит требуемый у pendingAutosaveResumeRef, потом
+   * запускаем. Срабатывает после успешной загрузки Vision из onChangeScope.
+   * Trigger-стейт инкрементируется в handleResumeAutosave; здесь читаем ref
+   * и мутируем его (не setState — иначе react-hooks/set-state-in-effect).
+   */
+  useEffect(() => {
+    if (pendingAutosaveResumeTrigger === 0) return;
+    const entry = pendingAutosaveResumeRef.current;
+    if (!entry) return;
+    if (scopeLoading) return;
+    if (currentScope !== entry.currentScope) return;
+    pendingAutosaveResumeRef.current = null;
+    startAutosaveResume(entry);
+    // startAutosaveResume и currentScope из замыкания — остальное читается
+    // в момент запуска.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAutosaveResumeTrigger, scopeLoading, currentScope]);
 
   /** Загружает запись истории в основную вкладку (без запуска). */
   const openHistoryEntry = (e: RunHistoryEntry) => {
@@ -1007,6 +1154,45 @@ export function OptimizerPanel({
           />
         ) : (
           <>
+        {/* Autosave-баннер: если в localStorage есть прерванный прогон без
+            явной паузы/завершения — предлагаем возобновить. После клика
+            «Возобновить» (или закрытия баннера через «Удалить») — пропадает. */}
+        {autosaveEntry && (
+          <div className="border-b border-amber-500/40 bg-amber-500/10 px-4 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[11px] text-amber-100">
+                <strong>Найден прерванный прогон.</strong>{' '}
+                Обработано {autosaveEntry.processed.toLocaleString('ru-RU')} /{' '}
+                {autosaveEntry.totalCombos.toLocaleString('ru-RU')} ({Math.round(
+                  (autosaveEntry.processed / Math.max(1, autosaveEntry.totalCombos)) * 100,
+                )}%), метрика «{METRIC_LABEL[autosaveEntry.optSettings.metric]}».{' '}
+                {autosaveEntry.currentScope !== null &&
+                  `Окно ${autosaveEntry.currentScope.toLocaleString('ru-RU')} свечей.`}
+              </div>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={handleResumeAutosave}
+                  disabled={running || scopeLoading}
+                  className="flex items-center gap-1 rounded bg-tv-accent px-3 py-1 text-[11px] font-semibold text-white hover:bg-tv-accent-hover disabled:opacity-40"
+                  title="Регенерируем грид по сохранённым specs и стартуем с того же индекса"
+                >
+                  <Play className="h-3 w-3" />
+                  Возобновить
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDiscardAutosave}
+                  className="rounded border border-tv-border bg-tv-bg-deep px-2 py-1 text-[11px] text-tv-text-muted hover:bg-tv-panel-hover hover:text-tv-text"
+                  title="Забыть прогон, начать с чистого листа"
+                >
+                  Удалить
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Параметры — в горизонтальной сетке колонок (без вертикального скролла) */}
         <div className="border-b border-tv-border p-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
