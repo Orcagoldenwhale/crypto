@@ -30,18 +30,21 @@ import { loadVisionDay, saveVisionDay } from './storage';
 
 const MS_5M = 5 * 60 * 1000;
 
-/** Tick size для BTCUSDT spot. Для других пар нужно подгружать /api/v3/exchangeInfo. */
-const DEFAULT_TICK_SIZE: Record<string, number> = {
-  BTCUSDT: 0.1,
-  ETHUSDT: 0.01,
-};
-
 // ============================================================================
 // Публичный API
 // ============================================================================
 
 export interface FetchVisionArgs {
   symbol: string;
+  /**
+   * Tick size в той же сетке, что и Python-pipeline (см. `data/symbols.ts`).
+   * Source of truth — `findSymbol(id).tickSize`. Передаётся явно, чтобы
+   * не дублировать словарь и не получать рассинхрон (например BTC=0.1 в
+   * визион-логере vs BTC=5 в symbols.ts, а TONUSDT вообще отсутствовал и
+   * падал на fallback 0.1 — кластеры превращались в кашу, бэктест давал
+   * 0 сделок на 35+ днях). Все callers берут это поле из `symbols.ts`.
+   */
+  tickSize: number;
   /** Сколько UTC-дней назад грузить, не считая сегодняшнего (Vision публикует «вчера» с задержкой). */
   days: number;
   signal?: AbortSignal;
@@ -69,13 +72,13 @@ export interface ProgressInfo {
  */
 export async function fetchVisionDataset({
   symbol,
+  tickSize,
   days,
   signal,
   onProgress,
 }: FetchVisionArgs): Promise<Dataset> {
   const dates = lastFinishedUtcDays(days);
   const candlesByDay: Candle5m[][] = [];
-  const tickSize = DEFAULT_TICK_SIZE[symbol] ?? 0.1;
   const errors: string[] = [];
 
   for (let i = 0; i < dates.length; i++) {

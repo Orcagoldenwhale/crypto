@@ -775,9 +775,18 @@ export default function App() {
 
       // Уровень 3: качаем из Vision (с подневным кэшем под капотом).
       if (raw5m === null) {
+        const symInfo = findSymbol(symbol);
+        if (!symInfo) {
+          setExtendedProgress(null);
+          setExtendedRunning(false);
+          extendedAbortRef.current = null;
+          window.alert(`Неизвестный символ: ${symbol}`);
+          return;
+        }
         try {
           const dataset = await fetchVisionDataset({
             symbol,
+            tickSize: symInfo.tickSize,
             days,
             signal: ac.signal,
             onProgress: (info: ProgressInfo) => {
@@ -1165,10 +1174,17 @@ export default function App() {
 
     setStatus({ kind: 'loading', loaded: 0, total: 7, label: 'Запрос Binance Vision…' });
 
+    const symInfo = findSymbol(symbol);
+    if (!symInfo) {
+      setStatus({ kind: 'error', message: `Неизвестный символ: ${symbol}` });
+      return;
+    }
+
     // 1) Пробуем Vision (настоящие aggTrades с кластерами)
     try {
       const dataset = await fetchVisionDataset({
         symbol,
+        tickSize: symInfo.tickSize,
         days: 7,
         signal: ac.signal,
         onProgress: (info) => {

@@ -26,8 +26,16 @@ const DB_NAME = 'smc-backtester';
  *        где Binance мигрировал CSV-формат. Чистим кэш — на следующем
  *        прогоне перекачается правильно. Зоны (`poi`) и live-свечи не
  *        задеты.
+ *   v6 — инвалидирует 'visionDays' и 'extendedDatasets': до 1.43.1 в
+ *        visionLoader сидел хардкод-словарь DEFAULT_TICK_SIZE, рассинхрон-
+ *        ный с `symbols.ts` (BTC: 0.1 vs 5, ETH: 0.01 vs 0.5, TON просто
+ *        отсутствовал и фолбэчился на 0.1 — для $5-токена это 2% бакеты,
+ *        кластеры превращались в кашу, 4-правильный сигнал не срабатывал,
+ *        extended-бэктест на 35+ днях выдавал 0 сделок). Сейчас tickSize
+ *        приходит из `symbols.ts` явно. Сбрасываем кэш → перекачаем с
+ *        правильной сеткой.
  */
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const STORE_POI = 'poi';
 const STORE_VISION = 'visionDays';
 const STORE_LIVE_TAIL = 'liveTail';
@@ -116,6 +124,18 @@ function getDB(): Promise<IDBPDatabase<SmcDB>> {
           // Битые μs-timestamp данные — drop+recreate чистит весь кэш Vision.
           // На следующем прогоне юзер скачает заново (минуты на BTC 7д,
           // часы на BNB 35д — но получит корректные даты и сделки).
+          if (db.objectStoreNames.contains(STORE_VISION)) {
+            db.deleteObjectStore(STORE_VISION);
+          }
+          db.createObjectStore(STORE_VISION, { keyPath: 'key' });
+          if (db.objectStoreNames.contains(STORE_EXTENDED)) {
+            db.deleteObjectStore(STORE_EXTENDED);
+          }
+          db.createObjectStore(STORE_EXTENDED, { keyPath: 'key' });
+        }
+        if (oldVersion < 6) {
+          // Тот же drop+recreate, причина другая: тики были посчитаны с
+          // неправильной сеткой (см. docстроку DB_VERSION выше).
           if (db.objectStoreNames.contains(STORE_VISION)) {
             db.deleteObjectStore(STORE_VISION);
           }
