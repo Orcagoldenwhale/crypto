@@ -203,6 +203,21 @@ export default function App() {
    */
   const [selectedBacktestTradeId, setSelectedBacktestTradeId] = useState<string | null>(null);
 
+  /**
+   * Pending-перепрогон бэктеста после «Применить» в оптимизаторе.
+   * Поток: оптимизатор зовёт `handleOptimizerApplyComplete(merged)` →
+   *   1. ref хранит финальные BT-настройки (не state, чтобы не плодить ре-рендер)
+   *   2. trigger-state инкрементируется → useEffect фиксирует событие
+   *   3. RAF в effect ждёт пока useMemo (ltfData, smcOverlay) пересчитаются
+   *      под новые tfPairId/smcLayers/smcOpts, и только потом вызывает
+   *      handleRunBacktest (его closure уже свежий — useCallback пересоздался
+   *      под новые зависимости).
+   * Без RAF бэктест прогонится на устаревшем overlay → не сойдётся с тем
+   * что показал оптимизатор.
+   */
+  const pendingOptApplyRef = useRef<BacktestSettings | null>(null);
+  const [pendingOptApplyTrigger, setPendingOptApplyTrigger] = useState(0);
+
   // Расширенный бэктест: загружает длинную Vision-выборку, ПОДМЕНЯЕТ
   // основной rawData5m и сразу прогоняет регулярный бэктест на ней.
   // График, зоны, сделки — всё переключается на extended окно, как при
@@ -670,6 +685,37 @@ export default function App() {
     },
     [ltfData, smcOverlay, smcOpts, symbol, smcLayers, tfPairId],
   );
+
+  /**
+   * Применили строку из оптимизатора («Применить»). К этому моменту
+   * OptimizerPanel уже разлил все state-changes (TF pair, SMC layers, SMC
+   * opts, BT settings, tick mult). Нам надо:
+   *   1) Закрыть модалку оптимизатора (она fullscreen → иначе график не видно)
+   *   2) Открыть BacktestPanel (чтобы пользователь сразу видел итоговый отчёт)
+   *   3) Перепрогнать backtest на восстановленных условиях
+   *
+   * Шаг 3 — через ref + trigger + useEffect: state-changes из шага 1 ещё не
+   * прокинулись через useMemo (ltfData, smcOverlay). RAF в effect даёт им
+   * один кадр чтобы settle, и тогда handleRunBacktest читает свежие зависимости.
+   */
+  const handleOptimizerApplyComplete = useCallback((merged: BacktestSettings) => {
+    pendingOptApplyRef.current = merged;
+    setOptimizerOpen(false);
+    setBacktestOpen(true);
+    setPendingOptApplyTrigger((t) => t + 1);
+  }, []);
+
+  useEffect(() => {
+    if (pendingOptApplyTrigger === 0) return;
+    const settings = pendingOptApplyRef.current;
+    if (!settings) return;
+    // Mutate ref (не state) — лишний ре-рендер ни к чему, флаг trigger уже
+    // увеличился и сам себя один раз обработает.
+    pendingOptApplyRef.current = null;
+    requestAnimationFrame(() => {
+      handleRunBacktest(settings);
+    });
+  }, [pendingOptApplyTrigger, handleRunBacktest]);
 
   /**
    * Расширенный бэктест: загружает N свечей из Vision (с кластерами) и
@@ -1907,9 +1953,10 @@ export default function App() {
             }}
             onClose={handleToggleOptimizer}
             onApply={(next) => {
+              // Чистый сеттер BT-настроек. UI-оркестрацию (закрыть оптимизатор,
+              // открыть BacktestPanel, перепрогнать) делает onApplyComplete —
+              // он гарантирует ЕДИНЫЙ путь: и для inline, и для Saved Apply.
               setBacktestSettings(next);
-              setOptimizerOpen(false);
-              setBacktestOpen(true);
             }}
             onApplySmc={(next) => {
               setSmcOpts(next);
@@ -1924,6 +1971,7 @@ export default function App() {
             onApplySmcLayers={(layers) => {
               setSmcLayers(layers);
             }}
+            onApplyComplete={handleOptimizerApplyComplete}
             symbol={symbol}
             tfPairId={tfPairId}
           />

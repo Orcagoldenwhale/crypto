@@ -98,6 +98,14 @@ interface OptimizerPanelProps {
   symbol: string;
   /** Текущая TF-пара (1h-5m / 5m-5m / …) — пишется в Saved/History. */
   tfPairId: TfPairId;
+  /**
+   * Колбэк после применения параметров (inline или saved). Получает финальные
+   * BT-настройки. App.tsx использует его чтобы закрыть оптимизатор, открыть
+   * BacktestPanel и прогнать бэктест на восстановленных условиях.
+   * Без этого «Применить» только меняет state — пользователь должен вручную
+   * закрыть модалку и нажать «Запустить».
+   */
+  onApplyComplete?: (mergedSettings: BacktestSettings) => void;
 }
 
 const PARAM_LABELS: Record<OptimizableKey, string> = {
@@ -214,6 +222,7 @@ export function OptimizerPanel({
   onApplySmcLayers,
   symbol,
   tfPairId,
+  onApplyComplete,
 }: OptimizerPanelProps) {
   const [optSettings, setOptSettings] = useState<OptimizerSettings>(
     () => loadOptimizerDefaults() ?? DEFAULT_OPTIMIZER_SETTINGS,
@@ -281,6 +290,13 @@ export function OptimizerPanel({
     });
   };
 
+  /**
+   * Единый путь применения: и для inline-результата (карточка top-N), и для
+   * Saved-записи. Гарантирует, что TF-пара / SMC-слои / SMC-opts / BT-params /
+   * tickMultiplier применяются в правильном порядке (см. applySavedResult).
+   * В конце дёргает onApplyComplete с финальными BT-настройками — это сигнал
+   * App.tsx закрыть оптимизатор, открыть BacktestPanel и перепрогнать.
+   */
   const applySaved = (s: SavedResult) => {
     devLog('apply-saved', {
       savedId: s.id,
@@ -305,6 +321,25 @@ export function OptimizerPanel({
       onApplyTfPair,
       onApplySmcLayers,
     });
+    if (onApplyComplete) {
+      const merged: BacktestSettings = { ...baseSettings, ...s.btParams };
+      onApplyComplete(merged);
+    }
+  };
+
+  /**
+   * Применение inline-результата (строка таблицы top-N). Заворачиваем
+   * OptimizerResult в SavedResult-обёртку через snapshotResult с ТЕКУЩИМИ
+   * tfPairId / smcLayers — это правильный контекст, потому что грид крутился
+   * именно на них. Дальше идём по тому же пути, что и Saved Apply.
+   */
+  const applyInlineResult = (r: OptimizerResult) => {
+    const synthetic = snapshotResult(r, optSettings.metric, {
+      symbol,
+      tfPairId,
+      smcLayers,
+    });
+    applySaved(synthetic);
   };
 
   useEffect(() => {
@@ -1034,11 +1069,7 @@ export function OptimizerPanel({
               <ResultsTable
                 results={results}
                 metric={optSettings.metric}
-                baseSettings={baseSettings}
-                baseSmcOpts={baseSmcOpts}
-                onApply={onApply}
-                onApplySmc={onApplySmc}
-                onApplyMultiplier={onApplyMultiplier}
+                onApplyResult={applyInlineResult}
                 onSave={saveResult}
               />
             )}
@@ -1163,20 +1194,13 @@ function NumInput({ label, value, step, onChange }: { label: string; value: numb
 function ResultsTable({
   results,
   metric,
-  baseSettings,
-  baseSmcOpts,
-  onApply,
-  onApplySmc,
-  onApplyMultiplier,
+  onApplyResult,
   onSave,
 }: {
   results: readonly OptimizerResult[];
   metric: OptimizerMetric;
-  baseSettings: BacktestSettings;
-  baseSmcOpts: SmcOptions;
-  onApply: (next: BacktestSettings) => void;
-  onApplySmc: (next: SmcOptions) => void;
-  onApplyMultiplier?: ((mult: 1 | 2 | 5 | 10 | undefined) => void) | undefined;
+  /** Унифицированный путь применения — TF/layers/smc/bt/tick + auto-rerun. */
+  onApplyResult: (r: OptimizerResult) => void;
   onSave: (r: OptimizerResult) => void;
 }) {
   return (
@@ -1199,11 +1223,7 @@ function ResultsTable({
             key={idx}
             idx={idx + 1}
             result={r}
-            baseSettings={baseSettings}
-            baseSmcOpts={baseSmcOpts}
-            onApply={onApply}
-            onApplySmc={onApplySmc}
-            onApplyMultiplier={onApplyMultiplier}
+            onApplyResult={onApplyResult}
             onSave={onSave}
           />
         ))}
@@ -1215,30 +1235,16 @@ function ResultsTable({
 function ResultRow({
   idx,
   result,
-  baseSettings,
-  baseSmcOpts,
-  onApply,
-  onApplySmc,
-  onApplyMultiplier,
+  onApplyResult,
   onSave,
 }: {
   idx: number;
   result: OptimizerResult;
-  baseSettings: BacktestSettings;
-  baseSmcOpts: SmcOptions;
-  onApply: (next: BacktestSettings) => void;
-  onApplySmc: (next: SmcOptions) => void;
-  onApplyMultiplier?: ((mult: 1 | 2 | 5 | 10 | undefined) => void) | undefined;
+  onApplyResult: (r: OptimizerResult) => void;
   onSave: (r: OptimizerResult) => void;
 }) {
   const { report, btParams, smcParams, dataParams, score } = result;
-  const handleApply = () => {
-    onApplySmc({ ...baseSmcOpts, ...smcParams });
-    onApply({ ...baseSettings, ...btParams });
-    if (onApplyMultiplier && dataParams.tickMultiplier !== undefined) {
-      onApplyMultiplier(dataParams.tickMultiplier as 1 | 2 | 5 | 10);
-    }
-  };
+  const handleApply = () => onApplyResult(result);
   return (
     <tr className="border-t border-tv-border/40 hover:bg-tv-panel-hover">
       <td className="px-2 py-1 text-tv-text-muted">{idx}</td>
