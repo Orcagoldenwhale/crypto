@@ -247,8 +247,10 @@ describe('runBacktest', () => {
     expect(report.trades[0]!.takePrice).toBeCloseTo(102.51, 3);
   });
 
-  it('entryPoint=mt: вход по Mean Threshold OB-зоны', () => {
-    // Bull OB зона с MT=100. Сигнальная свеча low=99 (достаёт MT).
+  it('entryPoint=mt: вход по Mean Threshold OB-зоны (лимит-ордер на NEXT свече)', () => {
+    // 1.46.0: после сигнала на close ставим лимит на MT, fill ищем на
+    // следующих свечах (lookahead-safe). Если фили не случился —
+    // сделку пропускаем, см. отдельный тест ниже.
     const overlay: SmcOverlay = {
       fvgs: [],
       liquidity: [],
@@ -277,8 +279,12 @@ describe('runBacktest', () => {
     const signal = makeCandle(T0 + MS5, 100, 101, 99, 100.8, 10, 100, -5, 2);
     const candles: Candle5m[] = [
       makeCandle(T0, 100, 101, 99, 100, 0, 100, 0, 0),
-      signal,
-      makeCandle(T0 + MS5 * 2, 100.8, 108, 100.5, 107, 5, 104, -1, 1),
+      signal, // idx=1, LONG signal
+      // idx=2: fill-свеча — low=99.5 ≤ MT=100, лимит срабатывает. Не сигнал
+      // (close < mid + delta=0), так что повторного входа не случится.
+      makeCandle(T0 + MS5 * 2, 100.8, 101, 99.5, 100.2, 0, 100.2, 0, 0),
+      // idx=3: TP-свеча — high=108 ≥ entry+risk*R = 100+0.3*2 = 100.6.
+      makeCandle(T0 + MS5 * 3, 100.2, 108, 100, 107, 5, 104, -1, 1),
     ];
     const settings: BacktestSettings = {
       ...DEFAULT_BACKTEST_SETTINGS,
@@ -289,8 +295,61 @@ describe('runBacktest', () => {
     };
     const report = runBacktest(candles, overlay, settings);
     expect(report.totalTrades).toBe(1);
-    // Entry должен быть равен MT = 100, а не close=100.8.
     expect(report.trades[0]!.entryPrice).toBe(100);
+    // entryTime = fill-свеча (idx=2), а не сигнальная (idx=1) — это и есть
+    // фикс lookahead'а.
+    expect(report.trades[0]!.entryTime).toBe(T0 + MS5 * 2);
+  });
+
+  it('entryPoint=mt: skip если лимит не сработал в окно (нет lookahead)', () => {
+    // Сигнал LONG на свече с low=99 (касается MT=100), НО по новой логике
+    // фили на сигнальной свече запрещён. На следующих свечах цена не
+    // возвращается к MT=100 → лимит не сработал → сделки нет.
+    const overlay: SmcOverlay = {
+      fvgs: [],
+      liquidity: [],
+      structure: [],
+      orderBlocks: [
+        {
+          id: 'ob1',
+          kind: 'bull',
+          obTime: T0,
+          startTime: T0,
+          endTime: T0 + MS5 * 20,
+          minPrice: 98,
+          maxPrice: 102,
+          mtPrice: 100,
+          openPrice: 102,
+          hasFvg: false,
+          unmitigated: true,
+          breakKind: 'BOS',
+        },
+      ],
+      breakerBlocks: [],
+      rejectionBlocks: [],
+      prevDayLevels: [],
+      compressions: [],
+    };
+    const signal = makeCandle(T0 + MS5, 100, 101, 99, 100.8, 10, 100, -5, 2);
+    const candles: Candle5m[] = [
+      makeCandle(T0, 100, 101, 99, 100, 0, 100, 0, 0),
+      signal, // idx=1, LONG signal — НО фили на этой же свече запрещён
+      // idx=2..6: цена улетает вверх, low всегда > 100, MT не достигается.
+      makeCandle(T0 + MS5 * 2, 101, 102, 101, 101.5, 0, 101.5, 0, 0),
+      makeCandle(T0 + MS5 * 3, 101.5, 103, 101.2, 102.5, 0, 102.5, 0, 0),
+      makeCandle(T0 + MS5 * 4, 102.5, 104, 102, 103.5, 0, 103.5, 0, 0),
+      makeCandle(T0 + MS5 * 5, 103.5, 105, 103, 104.5, 0, 104.5, 0, 0),
+      makeCandle(T0 + MS5 * 6, 104.5, 106, 104, 105.5, 0, 105.5, 0, 0),
+    ];
+    const settings: BacktestSettings = {
+      ...DEFAULT_BACKTEST_SETTINGS,
+      stopPct: 0.3,
+      zoneGapPct: 0,
+      fvgMaxFillPct: 100,
+      entryPoint: 'mt',
+    };
+    const report = runBacktest(candles, overlay, settings);
+    expect(report.totalTrades).toBe(0);
   });
 
   it('slBehindObWick: SL — ближайший из (stopPct, фитиль OB)', () => {

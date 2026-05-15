@@ -75,6 +75,42 @@ function findSwingSl(
   return null;
 }
 
+/**
+ * Сколько LTF-свечей ждать заполнения лимит-ордера для entryPoint ∈
+ * {open, mt, wick}. Сигнал подтверждается на close свечи T → лимит-ордер
+ * выставляется ПОСЛЕ закрытия → fill возможен только на T+1..T+N.
+ * Если за N свечей цена не дотянулась — сделку пропускаем (трейдер бы её
+ * отменил, чтобы не открывать вход в стухшей зоне).
+ *
+ * 10 — sensible default: на 5m это 50 минут, на 15m — 2.5 часа, на 1h —
+ * 10 часов. Большинство ретестов происходят быстрее.
+ */
+const ENTRY_LIMIT_TIMEOUT_CANDLES = 10;
+
+/**
+ * Ищет первую свечу строго ПОСЛЕ сигнала (signalIdx+1..), на которой цена
+ * коснулась target — это и есть fill лимит-ордера. Возвращает индекс fill-
+ * свечи или null если за окно timeoutCandles не сработал.
+ *
+ * Lookahead-safe: signalIdx + 1 — сигнал уже подтверждён close'ом на
+ * signalIdx, лимит ставится после close, заполнение возможно строго позже.
+ */
+function findEntryFillIdx(
+  candles: readonly Candle5m[],
+  signalIdx: number,
+  timeoutCandles: number,
+  target: Price,
+  type: 'LONG' | 'SHORT',
+): number | null {
+  const endIdx = Math.min(candles.length, signalIdx + 1 + timeoutCandles);
+  for (let j = signalIdx + 1; j < endIdx; j++) {
+    const c = candles[j]!;
+    const reached = type === 'LONG' ? c.low <= target : c.high >= target;
+    if (reached) return j;
+  }
+  return null;
+}
+
 export interface SmcZoneRect {
   id: string;
   startTime: TimestampMs;
@@ -229,32 +265,22 @@ function candleInZone(candle: Candle5m, zone: SmcZoneRect): boolean {
 }
 
 /**
- * Возвращает цену входа согласно выбранной точке entryPoint.
- * Если требуемая точка вне диапазона свечи — возвращает null
- * (сделку пропускаем — ждать ретеста на этой свече смысла нет).
- *
- * Для зон без OB-уровней (FVG, liquidity, structure) всегда close.
+ * Возвращает таргет лимит-ордера для не-close режимов или null если режим
+ * close (тогда entry = close сигнальной свечи, лимит не нужен).
+ * Для зон без OB-уровней (FVG/liquidity/structure) target=null →
+ * автоматически fallback на close (см. caller).
  */
-function computeEntryPrice(
-  candle: Candle5m,
+function computeLimitTarget(
   zone: SmcZoneRect,
   type: 'LONG' | 'SHORT',
   mode: BacktestSettings['entryPoint'],
 ): Price | null {
-  if (mode === 'close') return candle.close;
-  // Для не-OB зон или если поля не заданы — fallback на close.
-  if (zone.obKind === null) return candle.close;
-
-  let target: Price | null = null;
-  if (mode === 'open') target = zone.obOpenPrice;
-  else if (mode === 'mt') target = zone.obMtPrice;
-  else if (mode === 'wick') target = type === 'LONG' ? zone.minPrice : zone.maxPrice;
-  if (target === null) return candle.close;
-
-  // Свеча должна была коснуться целевой цены.
-  const reached = type === 'LONG' ? candle.low <= target : candle.high >= target;
-  if (!reached) return null;
-  return target;
+  if (mode === 'close') return null;
+  if (zone.obKind === null) return null; // не-OB зона → нет mt/open/wick
+  if (mode === 'open') return zone.obOpenPrice;
+  if (mode === 'mt') return zone.obMtPrice;
+  if (mode === 'wick') return type === 'LONG' ? zone.minPrice : zone.maxPrice;
+  return null;
 }
 
 function fvgFillPct(zone: SmcZoneRect, candle: Candle5m): number {
@@ -393,10 +419,31 @@ export function runBacktest(
       const type = check.type;
 
       // ---- Точка входа ----
-      const entryPrice = computeEntryPrice(candle, zone, type, settings.entryPoint);
-      if (entryPrice === null) {
-        trace(`[BT] ${ts} ${type} SKIP zone=${zone.id} reason=entry_not_reached (${settings.entryPoint})`);
-        continue;
+      // close → entry на сигнальной свече (signal подтверждён closure).
+      // open/mt/wick → лимит-ордер на target-уровне, fill ищем строго на
+      // следующих свечах (lookahead-safe: лимит ставится ПОСЛЕ close сигнала,
+      // заполниться может только на свечах i+1..i+TIMEOUT).
+      const limitTarget = computeLimitTarget(zone, type, settings.entryPoint);
+      let entryPrice: Price;
+      let fillIdx: number;
+      if (limitTarget === null) {
+        // close-режим ИЛИ не-OB зона (mt/wick/open не применимы) → close.
+        entryPrice = candle.close;
+        fillIdx = i;
+      } else {
+        const f = findEntryFillIdx(
+          candles,
+          i,
+          ENTRY_LIMIT_TIMEOUT_CANDLES,
+          limitTarget,
+          type,
+        );
+        if (f === null) {
+          trace(`[BT] ${ts} ${type} SKIP zone=${zone.id} reason=limit_not_filled (${settings.entryPoint} target=${limitTarget.toFixed(2)}, ${ENTRY_LIMIT_TIMEOUT_CANDLES} candles)`);
+          continue;
+        }
+        entryPrice = limitTarget;
+        fillIdx = f;
       }
 
       matched = true;
@@ -445,7 +492,10 @@ export function runBacktest(
       let exitPrice: Price | null = null;
       let pnlR = 0;
 
-      for (let j = i + 1; j < candles.length; j++) {
+      // SL/TP ищем с fillIdx+1 — позже момента fill. На fillIdx сам fill
+      // уже произошёл (его low/high коснулись target внутри свечи); считать
+      // SL/TP на этой же свече было бы lookahead-приближением.
+      for (let j = fillIdx + 1; j < candles.length; j++) {
         const future = candles[j]!;
         if (type === 'LONG') {
           if (future.low <= stopPrice) {
@@ -485,22 +535,27 @@ export function runBacktest(
       // проверяет это (`candle.timestamp > zone.startTime` strict), но
       // здесь явный лог — чтобы если детектор когда-нибудь выставит
       // startTime с lookahead'ом, мы поймали это сразу.
-      const ageMs = candle.timestamp - zone.startTime;
+      // Для не-close-режимов entry = fill-свеча (candles[fillIdx]), которая
+      // ещё позже сигнала — заведомо позже зоны.
+      const entryCandle = candles[fillIdx]!;
+      const ageMs = entryCandle.timestamp - zone.startTime;
       const ageCandles = msPerCandle > 0 ? Math.round(ageMs / msPerCandle) : 0;
-      trace(`[BT] ${ts} ${type} ENTRY zone=${zone.id} entry=${entryPrice.toFixed(2)} SL=${stopPrice.toFixed(2)} TP=${takePrice.toFixed(2)} zoneStart=${fmt(zone.startTime)} age=${ageCandles}c → ${outcome} ${pnlR >= 0 ? '+' : ''}${pnlR.toFixed(1)}R`);
+      const fillDelay = fillIdx - i;
+      const tsEntry = fmt(entryCandle.timestamp);
+      trace(`[BT] ${ts} ${type} ENTRY zone=${zone.id} entry=${entryPrice.toFixed(2)} SL=${stopPrice.toFixed(2)} TP=${takePrice.toFixed(2)} zoneStart=${fmt(zone.startTime)} age=${ageCandles}c fillDelay=${fillDelay}c entryTs=${tsEntry} → ${outcome} ${pnlR >= 0 ? '+' : ''}${pnlR.toFixed(1)}R`);
       // Защитный assert: если когда-нибудь это сработает — есть баг в
       // детекторе (startTime в будущем относительно entry).
       if (ageMs <= 0 && debug) {
-        log.push(`[BT] !!! LOOKAHEAD invariant violated: entry ${fmt(candle.timestamp)} <= zoneStart ${fmt(zone.startTime)}`);
+        log.push(`[BT] !!! LOOKAHEAD invariant violated: entry ${tsEntry} <= zoneStart ${fmt(zone.startTime)}`);
       }
 
-      const tradeId = `${zone.id}::${candle.timestamp}::${type}::${count}`;
+      const tradeId = `${zone.id}::${entryCandle.timestamp}::${type}::${count}`;
       trades.push({
         id: tradeId,
         type,
         zoneId: zone.id,
         entryNumber: count,
-        entryTime: candle.timestamp,
+        entryTime: entryCandle.timestamp,
         entryPrice,
         stopPrice,
         takePrice,
