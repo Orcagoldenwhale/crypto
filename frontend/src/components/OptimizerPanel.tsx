@@ -1137,13 +1137,10 @@ export function OptimizerPanel({
                   disabled={running}
                   className="rounded border border-tv-border bg-tv-bg-deep px-1 py-0.5 text-[10px] text-tv-text outline-none focus:border-tv-accent disabled:opacity-40"
                 >
-                  <option value="current">
-                    7д (текущий){currentScope === null ? ' ✓' : ''}
-                  </option>
+                  <option value="current">7д (текущий)</option>
                   {EXTENDED_CANDLE_OPTIONS.map((n) => (
                     <option key={n} value={n}>
                       {daysForCandles(n)}д ({n.toLocaleString('ru-RU')})
-                      {currentScope === n ? ' ✓' : ''}
                     </option>
                   ))}
                 </select>
