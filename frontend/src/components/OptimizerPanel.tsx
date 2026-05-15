@@ -325,7 +325,12 @@ export function OptimizerPanel({
   const [pendingAutosaveResumeTrigger, setPendingAutosaveResumeTrigger] = useState(0);
 
   const saveResult = (r: OptimizerResult) => {
-    const snap = snapshotResult(r, optSettings.metric, { symbol, tfPairId, smcLayers });
+    const snap = snapshotResult(r, optSettings.metric, {
+      symbol,
+      tfPairId,
+      smcLayers,
+      currentScope,
+    });
     setSavedResults((prev) => {
       const next = [snap, ...prev];
       persistSaved(next);
@@ -389,6 +394,7 @@ export function OptimizerPanel({
       symbol,
       tfPairId,
       smcLayers,
+      currentScope,
     });
     applySaved(synthetic);
   };
@@ -613,6 +619,7 @@ export function OptimizerPanel({
           symbol,
           tfPairId,
           smcLayers,
+          currentScope,
         });
         // Если возобновляли — старую paused-запись удаляем (заменяем новой).
         if (resume?.resumeId) {
@@ -640,6 +647,7 @@ export function OptimizerPanel({
             results: found.map(slimResult),
             symbol,
             tfPairId,
+            currentScope,
           });
         }
         // Прерванный прогон сбрасывает paused-снимок.
@@ -658,6 +666,7 @@ export function OptimizerPanel({
           symbol,
           tfPairId,
           smcLayers,
+          currentScope,
         });
         if (resume?.resumeId) {
           setHistory((prev) => removeHistoryEntry(prev, resume.resumeId!));
@@ -757,6 +766,7 @@ export function OptimizerPanel({
             results: stage1Top.map(slimResult),
             symbol,
             tfPairId,
+            currentScope,
           });
         }
         setResults(stage1Top);
@@ -836,6 +846,7 @@ export function OptimizerPanel({
         results: finalTop.map(slimResult),
         symbol,
         tfPairId,
+        currentScope,
       });
     } finally {
       setRunning(false);
@@ -1620,7 +1631,12 @@ function SavedView({
             <tr key={s.id} className="border-t border-tv-border/40 hover:bg-tv-panel-hover">
               <td className="px-2 py-1 text-tv-text-muted">{formatDate(s.savedAt)}</td>
               <td className="px-2 py-1 text-tv-text-muted whitespace-nowrap">
-                {joinSourceParts([s.symbol ?? null, tfPairLabel(s.tfPairId), formatTickFromSaved(s)])}
+                {joinSourceParts([
+                  s.symbol ?? null,
+                  tfPairLabel(s.tfPairId),
+                  formatScope(s.currentScope),
+                  formatTickFromSaved(s),
+                ])}
               </td>
               <td className="px-2 py-1 text-tv-text-muted">{METRIC_LABEL[s.metric]}</td>
               <td className="px-2 py-1 text-right font-mono text-tv-accent">{formatScore(s.score)}</td>
@@ -1699,6 +1715,17 @@ function formatTickFromHistory(e: RunHistoryEntry): string | null {
   return vs.map((v) => `×${v}`).join(', ');
 }
 
+/**
+ * Окно прогона: null = 7д prebuilt, число = extended candle count.
+ * Возвращает null если поле вообще отсутствует (legacy запись до 1.45.2) —
+ * чтобы не показывать «?» рядом с реальными данными.
+ */
+function formatScope(scope: number | null | undefined): string | null {
+  if (scope === undefined) return null;
+  if (scope === null) return '7д';
+  return `${daysForCandles(scope)}д`;
+}
+
 function joinSourceParts(parts: ReadonlyArray<string | null>): string {
   const filtered = parts.filter((p): p is string => !!p);
   return filtered.length > 0 ? filtered.join(' · ') : '—';
@@ -1763,7 +1790,12 @@ function HistoryView({
               <tr key={e.id} className="border-t border-tv-border/40 hover:bg-tv-panel-hover">
                 <td className="px-2 py-1 text-tv-text-muted">{formatDate(e.startedAt)}</td>
                 <td className="px-2 py-1 text-tv-text-muted whitespace-nowrap">
-                  {joinSourceParts([e.symbol ?? null, tfPairLabel(e.tfPairId), formatTickFromHistory(e)])}
+                  {joinSourceParts([
+                    e.symbol ?? null,
+                    tfPairLabel(e.tfPairId),
+                    formatScope(e.currentScope),
+                    formatTickFromHistory(e),
+                  ])}
                 </td>
                 <td className="px-2 py-1 text-tv-text">{STATUS_LABEL[e.status]}</td>
                 <td className="px-2 py-1 text-right font-mono text-tv-text-muted">

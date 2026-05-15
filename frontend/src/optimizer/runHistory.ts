@@ -50,6 +50,11 @@ export interface RunHistoryEntry {
    * с записями до 1.39.2. См. SavedResult.smcLayers — та же мотивация.
    */
   smcLayers?: SmcLayers;
+  /**
+   * Размер окна на момент прогона: null = 7д prebuilt, число = extended
+   * candle count. Optional для backward-compat с записями до 1.45.2.
+   */
+  currentScope?: number | null;
 }
 
 const STORAGE_KEY = 'smc-optimizer-history-v1';

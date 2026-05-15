@@ -58,6 +58,14 @@ export interface SavedResult {
    * params (smcParams ≠ smcLayers!).
    */
   smcLayers?: SmcLayers;
+  /**
+   * Размер окна на момент прогона: null = 7д prebuilt, число = extended
+   * candle count (10000 = 35д, 25000 = 87д и т.д.).
+   * Optional для backward-compat с записями до 1.45.2.
+   * Без него в Saved-таблице непонятно: 7-дневный это результат или 87д —
+   * винрейт между ними может отличаться на десятки процентов.
+   */
+  currentScope?: number | null;
 }
 
 const STORAGE_KEY = 'smc-optimizer-saved-results-v1';
@@ -127,7 +135,16 @@ export function persistOptimizerDefaults(settings: OptimizerSettings): void {
 export function snapshotResult(
   result: OptimizerResult,
   metric: OptimizerMetric,
-  source?: { symbol?: string; tfPairId?: TfPairId; smcLayers?: SmcLayers },
+  source?: {
+    symbol?: string;
+    tfPairId?: TfPairId;
+    smcLayers?: SmcLayers;
+    /**
+     * Активная extended-выборка на момент сохранения. null означает 7д
+     * prebuilt (важно отличать от undefined — legacy запись без поля).
+     */
+    currentScope?: number | null;
+  },
 ): SavedResult {
   const r: BacktestReport = result.report;
   // exactOptionalPropertyTypes=true → опциональные поля не должны явно
@@ -153,5 +170,6 @@ export function snapshotResult(
     ...(source?.symbol !== undefined ? { symbol: source.symbol } : {}),
     ...(source?.tfPairId !== undefined ? { tfPairId: source.tfPairId } : {}),
     ...(source?.smcLayers !== undefined ? { smcLayers: source.smcLayers } : {}),
+    ...(source?.currentScope !== undefined ? { currentScope: source.currentScope } : {}),
   };
 }

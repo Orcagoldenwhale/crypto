@@ -70,6 +70,32 @@ describe('snapshotResult (Saved/History labels — 1.36.1)', () => {
     expect('tfPairId' in saved).toBe(false);
   });
 
+  it('currentScope=null (7д prebuilt) сохраняется явно', () => {
+    // null отличается от undefined: undefined = legacy запись без поля,
+    // null = «явно 7д prebuilt». Снимок должен сохранить именно null.
+    const saved = snapshotResult(dummyOptimizerResult(1), 'composite', {
+      symbol: 'BTCUSDT',
+      currentScope: null,
+    });
+    expect('currentScope' in saved).toBe(true);
+    expect(saved.currentScope).toBeNull();
+  });
+
+  it('currentScope=10000 (35д extended) сохраняется', () => {
+    const saved = snapshotResult(dummyOptimizerResult(1), 'composite', {
+      symbol: 'TONUSDT',
+      currentScope: 10000,
+    });
+    expect(saved.currentScope).toBe(10000);
+  });
+
+  it('source без currentScope — поле в snapshot отсутствует (legacy путь)', () => {
+    const saved = snapshotResult(dummyOptimizerResult(1), 'composite', {
+      symbol: 'BTCUSDT',
+    });
+    expect('currentScope' in saved).toBe(false);
+  });
+
   it('summary заполняется из BacktestReport', () => {
     const saved = snapshotResult(dummyOptimizerResult(1), 'winRate');
     expect(saved.summary).toEqual({
