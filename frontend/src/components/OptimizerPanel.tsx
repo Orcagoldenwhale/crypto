@@ -133,6 +133,13 @@ interface OptimizerPanelProps {
   scopeLoading: boolean;
   /** Прогресс загрузки Vision — те же поля что extendedProgress в BacktestPanel. */
   scopeProgress: ExtendedProgress | null;
+  /**
+   * Отменить идущую Vision-загрузку. Подкладывает abort'у через
+   * extendedAbortRef в App — те же файлы что уже успели скачаться/распарситься,
+   * остаются в IndexedDB (на следующий запуск возьмутся из кэша); незаконченный
+   * день не сохраняется.
+   */
+  onCancelScope: () => void;
 }
 
 const PARAM_LABELS: Record<OptimizableKey, string> = {
@@ -255,6 +262,7 @@ export function OptimizerPanel({
   onChangeScope,
   scopeLoading,
   scopeProgress,
+  onCancelScope,
 }: OptimizerPanelProps) {
   const [optSettings, setOptSettings] = useState<OptimizerSettings>(
     () => loadOptimizerDefaults() ?? DEFAULT_OPTIMIZER_SETTINGS,
@@ -1140,9 +1148,20 @@ export function OptimizerPanel({
                   ))}
                 </select>
                 {scopeLoading && (
-                  <span className="text-[9px] text-amber-400">
-                    {scopeProgress?.label ?? 'загрузка…'}
-                  </span>
+                  <>
+                    <span className="text-[9px] text-amber-400">
+                      {scopeProgress?.label ?? 'загрузка…'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={onCancelScope}
+                      title="Прервать загрузку Vision. Уже скачанные дни останутся в кэше."
+                      className="flex items-center gap-1 rounded border border-tv-border bg-tv-bg-deep px-1.5 py-0.5 text-[9px] text-tv-text-muted hover:bg-red-500 hover:text-white"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                      Отмена
+                    </button>
+                  </>
                 )}
               </label>
             )}

@@ -2014,6 +2014,7 @@ export default function App() {
             onChangeScope={handleChangeOptimizerScope}
             scopeLoading={extendedRunning}
             scopeProgress={extendedProgress}
+            onCancelScope={handleCancelExtended}
           />
         )}
 
