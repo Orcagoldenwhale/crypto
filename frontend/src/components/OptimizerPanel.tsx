@@ -722,27 +722,15 @@ export function OptimizerPanel({
       topN: opts.topN,
     });
 
-    /**
-     * Builder для autosave в sample mode. Stage 1 даёт `processed` от 0
-     * до samples.length, Stage 2 продолжает от samples.length. Totals тоже
-     * меняются: на Stage 1 это samples.length, на Stage 2 — samples + neighbors.
-     */
-    const makeAutosaveCheckpoint =
-      (offset: number, total: number) =>
-      (snap: { processed: number; top: OptimizerResult[] }) => {
-        saveAutosave({
-          startedAt,
-          updatedAt: Date.now(),
-          processed: offset + snap.processed,
-          totalCombos: total,
-          top: snap.top.map(slimResult),
-          optSettings: opts,
-          symbol,
-          tfPairId,
-          smcLayers,
-          currentScope,
-        });
-      };
+    // Autosave НЕ пишется из sample mode. Причина: resume из autosave идёт
+    // через handleRun (exhaustive путь) с generateGrid(specs) — для гридов,
+    // которые попадают в sample mode (>100K combos), это материализует
+    // массив на 200K-1M объектов и фризит / OOM-ит вкладку. Sample mode и
+    // так быстрый (~5-15 мин на 35-87д), при крахе пользователь перезапускает
+    // вручную. Если на момент старта sample был старый autosave от
+    // exhaustive-прогона — чистим его, чтобы баннер не показывал чужой
+    // прогон когда нынешний завершится.
+    clearAutosave();
 
     try {
       const stage1Top = await runOptimizer({
@@ -754,7 +742,6 @@ export function OptimizerPanel({
         optSettings: opts,
         signal: ac.signal,
         onProgress: (p) => setProgress({ done: p.done, total: p.total, best: p.bestScore }),
-        onCheckpoint: makeAutosaveCheckpoint(0, samples.length),
       });
       if (ac.signal.aborted) {
         // Cancelled: записываем то что собрали, если есть.
@@ -811,10 +798,6 @@ export function OptimizerPanel({
             total: samples.length + p.total,
             best: p.bestScore,
           }),
-        onCheckpoint: makeAutosaveCheckpoint(
-          samples.length,
-          samples.length + neighborCombos.length,
-        ),
       });
       setResults(finalTop);
       devLog('optimizer:run-done', {
@@ -890,6 +873,19 @@ export function OptimizerPanel({
    */
   const handleResumeAutosave = () => {
     if (!autosaveEntry) return;
+    // Защита от freeze'а на гигантских гридах. handleRun (resume-путь) зовёт
+    // generateGrid(specs) — он материализует ВЕСЬ грид в массив. Для гридов
+    // >SAMPLE_SIZE (200K-1M комбо) это OOM/фриз. Такие autosave-записи могут
+    // оставаться у юзеров, у которых 1.45.0 успел записать сэмпл-прогон до
+    // 1.45.1 (где autosave из sample mode отключён).
+    const expectedCombos = countCombinations(autosaveEntry.optSettings.specs);
+    if (expectedCombos > SAMPLE_SIZE) {
+      const ok = window.confirm(
+        `Прогон содержит ~${expectedCombos.toLocaleString('ru-RU')} комбинаций — это sample-mode грид, его нельзя точно возобновить (sample-комбо случайные, нет детерминированного индекса). Удалить запись и начать с чистого листа?`,
+      );
+      if (ok) handleDiscardAutosave();
+      return;
+    }
     if (autosaveEntry.currentScope === currentScope) {
       startAutosaveResume(autosaveEntry);
       return;
