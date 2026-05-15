@@ -63,6 +63,18 @@ export interface BacktestSettings {
    */
   slBehindSwing: boolean;
   /**
+   * Сколько свечей ждать заполнения лимит-ордера для entryPoint ∈
+   * {open, mt, wick}. Lookahead-safe: сигнал подтверждается на close
+   * свечи T → лимит ставится после close → fill возможен только на
+   * T+1..T+N. Если за N свечей цена не дошла до target — сделка
+   * пропускается (реальный трейдер так бы и отменил ордер).
+   *
+   * 0 не имеет смысла (никогда не fill'ится). Sensible default = 10:
+   * на 5m это ~50 мин, на 15m ~2.5ч, на 1h ~10ч — покрывает большинство
+   * легитимных ретестов. Для entryPoint='close' не используется.
+   */
+  entryLimitTimeoutCandles: number;
+  /**
    * Если true — OB остаётся валидным для входа пока тело свечи не
    * закрылось за Mean Threshold (50% тела OB). При закрытии тела за MT
    * зона выключается, независимо от maxReentries/fvgMaxFillPct.
@@ -85,6 +97,7 @@ export const DEFAULT_BACKTEST_SETTINGS: BacktestSettings = {
   slBehindObWick: false,
   slBehindFvgEdge: false,
   slBehindSwing: false,
+  entryLimitTimeoutCandles: 10,
   validityByMt: false,
 };
 

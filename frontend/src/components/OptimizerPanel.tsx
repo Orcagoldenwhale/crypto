@@ -151,6 +151,7 @@ const PARAM_LABELS: Record<OptimizableKey, string> = {
   slBehindSwing: 'SL за свингом',
   validityByMt: 'Валидность по MT',
   entryPoint: 'Точка входа',
+  entryLimitTimeoutCandles: 'Окно лимит-ордера (свечей)',
   // SMC
   lookback: 'Lookback (свечи)',
   fvgMaxFillPct: 'FVG fill-порог (%) [SMC]',
@@ -189,7 +190,7 @@ const SECTIONS: SectionConfig[] = [
       'stopPct', 'rewardRatio', 'zoneGapPct', 'maxReentries',
       'minFvgPct', 'maxCandleBodyPct', 'fvgMaxLifetimeCandles',
       'reentryAfterWin', 'slBehindObWick', 'slBehindFvgEdge', 'slBehindSwing',
-      'validityByMt', 'entryPoint',
+      'validityByMt', 'entryPoint', 'entryLimitTimeoutCandles',
     ],
   },
   {

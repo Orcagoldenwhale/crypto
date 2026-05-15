@@ -207,6 +207,18 @@ export function BacktestPanel({
                   ]}
                 />
               </Row>
+              <Row
+                label="Окно лимит-ордера (свечей)"
+                hint="Для Open/MT/Wick: сколько свечей ждать ретеста после сигнала. Если за N свечей цена не дошла до target — сделка пропускается. Для Close не используется."
+              >
+                <NumberInput
+                  value={settings.entryLimitTimeoutCandles}
+                  min={1}
+                  max={200}
+                  step={1}
+                  onChange={(v) => update('entryLimitTimeoutCandles', v)}
+                />
+              </Row>
             </Section>
 
             <Section title="Диагностика">

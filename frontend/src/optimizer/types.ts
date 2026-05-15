@@ -51,7 +51,8 @@ export type BacktestKey =
   | 'slBehindFvgEdge'
   | 'slBehindSwing'
   | 'validityByMt'
-  | 'entryPoint';
+  | 'entryPoint'
+  | 'entryLimitTimeoutCandles';
 
 /**
  * Подмножество SmcOptions, которые имеет смысл варьировать.
@@ -178,6 +179,7 @@ export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
     slBehindSwing: { type: 'bool', enabled: false, bothValues: true },
     validityByMt: { type: 'bool', enabled: false, bothValues: true },
     entryPoint: { type: 'enum', enabled: false, values: ['close', 'mt', 'wick'] },
+    entryLimitTimeoutCandles: { type: 'number', enabled: false, from: 3, to: 30, step: 3 },
     // ===== SMC =====
     lookback: { type: 'number', enabled: false, from: 3, to: 10, step: 1 },
     fvgMaxFillPct: { type: 'number', enabled: false, from: 30, to: 80, step: 10 },

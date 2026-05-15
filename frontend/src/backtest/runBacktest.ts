@@ -76,18 +76,6 @@ function findSwingSl(
 }
 
 /**
- * Сколько LTF-свечей ждать заполнения лимит-ордера для entryPoint ∈
- * {open, mt, wick}. Сигнал подтверждается на close свечи T → лимит-ордер
- * выставляется ПОСЛЕ закрытия → fill возможен только на T+1..T+N.
- * Если за N свечей цена не дотянулась — сделку пропускаем (трейдер бы её
- * отменил, чтобы не открывать вход в стухшей зоне).
- *
- * 10 — sensible default: на 5m это 50 минут, на 15m — 2.5 часа, на 1h —
- * 10 часов. Большинство ретестов происходят быстрее.
- */
-const ENTRY_LIMIT_TIMEOUT_CANDLES = 10;
-
-/**
  * Ищет первую свечу строго ПОСЛЕ сигнала (signalIdx+1..), на которой цена
  * коснулась target — это и есть fill лимит-ордера. Возвращает индекс fill-
  * свечи или null если за окно timeoutCandles не сработал.
@@ -434,12 +422,12 @@ export function runBacktest(
         const f = findEntryFillIdx(
           candles,
           i,
-          ENTRY_LIMIT_TIMEOUT_CANDLES,
+          settings.entryLimitTimeoutCandles,
           limitTarget,
           type,
         );
         if (f === null) {
-          trace(`[BT] ${ts} ${type} SKIP zone=${zone.id} reason=limit_not_filled (${settings.entryPoint} target=${limitTarget.toFixed(2)}, ${ENTRY_LIMIT_TIMEOUT_CANDLES} candles)`);
+          trace(`[BT] ${ts} ${type} SKIP zone=${zone.id} reason=limit_not_filled (${settings.entryPoint} target=${limitTarget.toFixed(2)}, ${settings.entryLimitTimeoutCandles} candles)`);
           continue;
         }
         entryPrice = limitTarget;
