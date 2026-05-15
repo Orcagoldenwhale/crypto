@@ -334,6 +334,20 @@ export function OptimizerPanel({
   const pendingAutosaveResumeRef = useRef<AutosaveEntry | null>(null);
   const [pendingAutosaveResumeTrigger, setPendingAutosaveResumeTrigger] = useState(0);
 
+  /**
+   * Намерение пользователя по поводу окна. Локальный UI-state, не пропагирует
+   * сразу в App — load включается ТОЛЬКО когда юзер жмёт «Запустить». Это
+   * убирает класс багов «выбрал 35д, кликнул Запустить слишком рано, прогон
+   * пошёл на 7д». Init из currentScope чтобы сразу показать что фактически
+   * загружено.
+   */
+  const [intendedScope, setIntendedScope] = useState<ExtendedCandleCount | null>(
+    () => currentScope,
+  );
+  /** Pending-флаг: нажали Запустить пока scope ещё не подгрузился. */
+  const pendingRunDuringScopeLoadRef = useRef(false);
+  const [pendingRunTrigger, setPendingRunTrigger] = useState(0);
+
   const saveResult = (r: OptimizerResult) => {
     const snap = snapshotResult(r, optSettings.metric, {
       symbol,
@@ -873,6 +887,60 @@ export function OptimizerPanel({
   };
 
   /**
+   * Один клик «Запустить» делает всё:
+   *   - Если intendedScope совпадает с currentScope (данные уже там) → handleRun сразу.
+   *   - Если intendedScope требует extended-выборки, которой ещё нет → онClickScope
+   *     запускает Vision-загрузку + ставит pending-флаг. useEffect ниже ловит
+   *     момент когда scope догнался и сам зовёт handleRun. Пользователю не
+   *     нужно ждать «Запустить» — он один раз нажал, остальное автоматом.
+   *   - intendedScope === null (7д) → запускаем на ТЕКУЩИХ данных (может быть
+   *     extended до сих пор; пользователь видит реальный объём в индикаторе
+   *     «Прогон будет на» и решает закрыть extended вручную если нужно).
+   */
+  const handleRunClick = () => {
+    if (running) return;
+    if (intendedScope === null || intendedScope === currentScope) {
+      // Данные уже подходят — пускаем напрямую.
+      if (!scopeLoading) {
+        handleRun();
+        return;
+      }
+    }
+    // Нужна подгрузка. Ставим pending — useEffect ниже подхватит когда scope
+    // догонит intendedScope. Если loading ещё не идёт — стартуем сами.
+    pendingRunDuringScopeLoadRef.current = true;
+    setPendingRunTrigger((t) => t + 1);
+    if (!scopeLoading && intendedScope !== null && intendedScope !== currentScope) {
+      onChangeScope(intendedScope);
+    }
+  };
+
+  /**
+   * Pending-run watcher: когда scope-загрузка завершилась и currentScope
+   * догнал intendedScope — запускаем handleRun. Ref+trigger pattern чтобы
+   * избежать react-hooks/set-state-in-effect.
+   */
+  useEffect(() => {
+    if (!pendingRunDuringScopeLoadRef.current) return;
+    if (scopeLoading) return; // ещё грузим — ждём
+    const ok =
+      intendedScope === null || intendedScope === currentScope;
+    if (!ok) {
+      // Загрузка кончилась но scope не догнал — load упал. Сбрасываем pending.
+      pendingRunDuringScopeLoadRef.current = false;
+      return;
+    }
+    pendingRunDuringScopeLoadRef.current = false;
+    // rAF — handleRun setState'ит внутри (running/progress/results), внутри
+    // эффекта это react-hooks/set-state-in-effect; через rAF лишний кадр и
+    // setState уже не считается «в эффекте».
+    requestAnimationFrame(() => handleRun());
+    // Триггер нужен в deps чтобы effect перезапустился при повторных кликах
+    // на Run во время одной и той же не-выполненной загрузки.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeLoading, currentScope, intendedScope, pendingRunTrigger]);
+
+  /**
    * Запустить прогон из autosave-записи. Используется и при «scope совпадает —
    * запускай сразу», и при «scope догнал нужное значение через useEffect ниже».
    */
@@ -1053,33 +1121,30 @@ export function OptimizerPanel({
                 История ({history.length})
               </button>
             </div>
-            {/* Окно (scope) — выборка, на которой крутится оптимизатор. */}
+            {/* Окно (scope) — выбираем намерение пользователя. Подгрузка
+                включается ТОЛЬКО когда жмём Запустить (если нужно). */}
             {view === 'optimizer' && (
               <label
                 className="flex items-center gap-1.5 text-[10px] text-tv-text-muted"
-                title={
-                  currentScope === null
-                    ? 'Сейчас 7д prebuilt. Выбери 35д+ → подгрузится Vision, оптимизатор будет крутиться на этом окне.'
-                    : 'Текущая выборка из Vision. Поменяй чтобы переключиться (кэш переиспользуется).'
-                }
+                title="Выбери окно для прогона. Если данных ещё нет — подгрузятся автоматически при «Запустить»."
               >
                 Окно
                 <select
-                  value={currentScope === null ? 'current' : String(currentScope)}
+                  value={intendedScope === null ? 'current' : String(intendedScope)}
                   onChange={(e) => {
                     const v = e.target.value;
-                    if (v === 'current') return;
-                    onChangeScope(Number(v) as ExtendedCandleCount);
+                    setIntendedScope(v === 'current' ? null : (Number(v) as ExtendedCandleCount));
                   }}
-                  disabled={running || scopeLoading}
+                  disabled={running}
                   className="rounded border border-tv-border bg-tv-bg-deep px-1 py-0.5 text-[10px] text-tv-text outline-none focus:border-tv-accent disabled:opacity-40"
                 >
-                  {currentScope === null && (
-                    <option value="current">7д (текущий)</option>
-                  )}
+                  <option value="current">
+                    7д (текущий){currentScope === null ? ' ✓' : ''}
+                  </option>
                   {EXTENDED_CANDLE_OPTIONS.map((n) => (
                     <option key={n} value={n}>
                       {daysForCandles(n)}д ({n.toLocaleString('ru-RU')})
+                      {currentScope === n ? ' ✓' : ''}
                     </option>
                   ))}
                 </select>
@@ -1303,13 +1368,19 @@ export function OptimizerPanel({
                   ) : (
                     <button
                       type="button"
-                      onClick={() => handleRun()}
-                      disabled={total === 0 || scopeLoading}
+                      onClick={handleRunClick}
+                      disabled={total === 0}
                       className="flex w-full items-center justify-center gap-1.5 rounded bg-tv-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-tv-accent-hover disabled:opacity-40"
-                      title={scopeLoading ? 'Дождитесь загрузки Vision для выбранного окна' : undefined}
+                      title={
+                        scopeLoading
+                          ? 'Загружаем Vision-данные, затем оптимизатор стартует сам'
+                          : undefined
+                      }
                     >
                       <Play className="h-3.5 w-3.5" />
-                      {scopeLoading ? 'Грузим данные…' : 'Запустить оптимизацию'}
+                      {scopeLoading
+                        ? `Грузим ${intendedScope !== null ? daysForCandles(intendedScope) + 'д' : 'данные'} → потом прогон…`
+                        : 'Запустить оптимизацию'}
                     </button>
                   )
                 ) : (
