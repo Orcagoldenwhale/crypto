@@ -2014,16 +2014,6 @@ export default function App() {
             onChangeScope={handleChangeOptimizerScope}
             scopeLoading={extendedRunning}
             scopeProgress={extendedProgress}
-            currentDataDescription={(() => {
-              // Считаем фактический размер выборки в днях из ltfData.length +
-              // длительности LTF-свечи. Это даёт ту же цифру независимо от
-              // того, сколько раз свечи переагрегированы (tick mult etc).
-              const len = ltfData.length;
-              if (len === 0) return 'нет данных';
-              const ms = candleDurationMs(ltfTf);
-              const days = Math.round((len * ms) / 86_400_000);
-              return `${days}д · ${len.toLocaleString('ru-RU')} свечей × ${ltfTf}`;
-            })()}
           />
         )}
 
