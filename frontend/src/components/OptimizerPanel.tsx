@@ -133,6 +133,14 @@ interface OptimizerPanelProps {
   scopeLoading: boolean;
   /** Прогресс загрузки Vision — те же поля что extendedProgress в BacktestPanel. */
   scopeProgress: ExtendedProgress | null;
+  /**
+   * Текстовое описание ФАКТИЧЕСКОЙ выборки, на которой пойдёт прогон. Берётся
+   * из ltfData.length + ltfTf в App (а не из currentScope!), чтобы поймать
+   * случай когда selector показывает «35д», но scope-load ещё не успел
+   * пропагировать — пользователь видит что данных всё ещё 7д и не запускает
+   * мимо. Формат: «35д · 10 080 свечей × 5m».
+   */
+  currentDataDescription: string;
 }
 
 const PARAM_LABELS: Record<OptimizableKey, string> = {
@@ -255,6 +263,7 @@ export function OptimizerPanel({
   onChangeScope,
   scopeLoading,
   scopeProgress,
+  currentDataDescription,
 }: OptimizerPanelProps) {
   const [optSettings, setOptSettings] = useState<OptimizerSettings>(
     () => loadOptimizerDefaults() ?? DEFAULT_OPTIMIZER_SETTINGS,
@@ -1220,6 +1229,19 @@ export function OptimizerPanel({
         {/* Запуск + результаты */}
         <div className="flex flex-1 flex-col overflow-hidden">
           <div className="border-b border-tv-border p-3">
+                {/* Фактическая выборка — что РЕАЛЬНО уйдёт в прогон.
+                    Не путать с currentScope (намерение пользователя из dropdown):
+                    если выбрал 35д но не дождался загрузки Vision, тут будет 7д
+                    из prebuilt — это и есть момент, когда надо НЕ ЗАПУСКАТЬ. */}
+                <div className="mb-2 rounded border border-tv-accent/30 bg-tv-accent/5 px-2 py-1">
+                  <div className="text-[10px] uppercase tracking-wider text-tv-text-muted">
+                    Прогон будет на
+                  </div>
+                  <div className="font-mono text-xs font-bold text-tv-accent">
+                    {currentDataDescription}
+                  </div>
+                </div>
+
                 <div className="mb-2 flex items-center justify-between text-xs text-tv-text">
                   <span>
                     Всего комбинаций: <strong className="text-tv-accent">{total === Infinity ? '∞' : total.toLocaleString('ru-RU')}</strong>
