@@ -174,7 +174,7 @@ const PARAM_LABELS: Record<OptimizableKey, string> = {
   rbAlsoAtFvg: 'RB фитиль в FVG',
   rbUseMeanThreshold: 'Учитывать MT для RB',
   // Liquidity
-  equalityTolerancePct: 'Допуск равенства цен (доля)',
+  equalityTolerancePct: 'Допуск equal-highs/lows (0=auto)',
   liqShowExternal: 'Liq external (за range)',
   liqShowInternal: 'Liq internal (внутри range)',
   liqShowPrevDay: 'PDH / PDL (предыдущий день)',

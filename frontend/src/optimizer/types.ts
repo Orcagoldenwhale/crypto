@@ -183,7 +183,12 @@ export const DEFAULT_OPTIMIZER_SETTINGS: OptimizerSettings = {
     // ===== SMC =====
     lookback: { type: 'number', enabled: false, from: 3, to: 10, step: 1 },
     fvgMaxFillPct: { type: 'number', enabled: false, from: 30, to: 80, step: 10 },
-    equalityTolerancePct: { type: 'number', enabled: false, from: 0.0001, to: 0.001, step: 0.0001 },
+    // 0 = АВТО (adaptive из медианы свечи), >0 = ручной % от цены.
+    // 0..0.005 шагом 0.0005 = 11 значений: auto + 0.05% / 0.10% / ... / 0.50%.
+    // Покрывает и tight (для индексов), и broad (для волатильной крипты), и
+    // adaptive (новый default). Полезно сравнить какой режим даёт больше
+    // honest liquidity zones на конкретном символе.
+    equalityTolerancePct: { type: 'number', enabled: false, from: 0, to: 0.005, step: 0.0005 },
     obExtraction: { type: 'enum', enabled: false, values: ['wicks', 'body', 'auto'] },
     obUseMeanThreshold: { type: 'bool', enabled: false, bothValues: true },
     obRequireAbsorption: { type: 'bool', enabled: false, bothValues: true },
