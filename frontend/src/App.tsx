@@ -419,6 +419,76 @@ export default function App() {
     };
   }, [symbol]);
 
+  // ============================================================================
+  // Авто-refresh: подхватываем новый день из Vision когда юзер возвращается
+  // на вкладку.
+  //
+  // Сценарий: окно открыто на 7д с понедельника. В среду 00:00 UTC Vision
+  // публикует вторник. Юзер заходит на вкладку → проверяем, появился ли
+  // вчерашний день после нашей последней проверки. Если да — перетягиваем
+  // последние 7 дней через fetchVisionDataset (per-day кэш = качаем только
+  // НОВЫЙ день, остальные мгновенно из visionDays).
+  //
+  // Условия пропуска (rev'не делаем):
+  //   - extended-режим активен (rawData5m — это 35д+ выборка из BacktestPanel/
+  //     optimizer, не наш дефолтный 7д);
+  //   - в последние 5 минут уже проверяли (защита от toggle-фокус-spam);
+  //   - rawData5m пустой (значит initial load ещё не доехал, ему виднее).
+  //
+  // setRawData5m триггерит ре-расчёт useMemo'ов (ltfData, smcOverlay) и
+  // ChartCanvas — без специальной диагностики юзер увидит обновлённую линию.
+  // ============================================================================
+  const lastAutoRefreshAtRef = useRef(0);
+  const rawData5mRef = useRef(rawData5m);
+  useEffect(() => {
+    rawData5mRef.current = rawData5m;
+  }, [rawData5m]);
+
+  useEffect(() => {
+    const REFRESH_THROTTLE_MS = 5 * 60 * 1000;
+    const check = async () => {
+      if (document.visibilityState !== 'visible') return;
+      if (extendedCandleCountActive !== null) return;
+      const now = Date.now();
+      if (now - lastAutoRefreshAtRef.current < REFRESH_THROTTLE_MS) return;
+      lastAutoRefreshAtRef.current = now;
+
+      const current = rawData5mRef.current;
+      if (current.length === 0) return; // initial load handles empty state
+
+      const info = findSymbol(symbol);
+      if (!info) return;
+
+      try {
+        const dataset = await fetchVisionDataset({
+          symbol,
+          tickSize: info.tickSize,
+          days: 7,
+        });
+        const newLastTs = dataset.candles[dataset.candles.length - 1]?.timestamp ?? 0;
+        const oldLastTs = current[current.length - 1]?.timestamp ?? 0;
+        if (newLastTs <= oldLastTs) return; // ничего нового — Vision ещё не опубликовал
+        setRawData5m(dataset.candles);
+        devLog('auto-refresh:new-day', {
+          symbol,
+          oldLastTs: new Date(oldLastTs).toISOString(),
+          newLastTs: new Date(newLastTs).toISOString(),
+          newCandleCount: dataset.candles.length,
+        });
+      } catch (e) {
+        console.warn('[auto-refresh] failed', e);
+      }
+    };
+
+    document.addEventListener('visibilitychange', check);
+    // Также проверим раз на mount — на случай если юзер открыл вкладку и сразу
+    // прошёл за её фокусом (visibilitychange не выстрелит).
+    void check();
+    return () => {
+      document.removeEventListener('visibilitychange', check);
+    };
+  }, [symbol, extendedCandleCountActive]);
+
   // Сохраняем зоны при каждом изменении (idb достаточно быстр для синхронной записи).
   // Skip первого рендера для каждого symbol, чтобы пустой массив не затёр загруженный.
   const lastSavedSymbolRef = useRef<string | null>(null);
