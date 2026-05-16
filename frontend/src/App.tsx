@@ -24,7 +24,7 @@ import {
 } from '@/data/aggregator';
 import { fetchBinanceKlines } from '@/data/binanceLoader';
 import { fetchVisionDataset, type ProgressInfo } from '@/data/visionLoader';
-import { loadDatasetFromFile, loadDatasetFromUrl } from '@/data/datasetLoader';
+import { loadDatasetFromFile } from '@/data/datasetLoader';
 import { loadPOIs, savePOIs, loadExtendedDataset, saveExtendedDataset } from '@/data/storage';
 import { devLog } from '@/dev/devLog';
 import { alignTrimForHtf } from '@/data/extendedTrim';
@@ -337,11 +337,18 @@ export default function App() {
   }, [symbol]);
 
   // ============================================================================
-  // Авто-загрузка предзагруженного датасета при смене symbol.
+  // Авто-загрузка дефолтной выборки при смене symbol.
   //
-  // Каждый символ имеет свой prebuiltUrl (см. data/symbols.ts). При смене
-  // тикера ChartCanvas ненадолго становится пустым → подтягивается новый файл.
-  // 404 — норма (датасета нет), молчим. Любые ошибки сети — warn в консоль.
+  // С 1.49.0: вместо статичного prebuilt-JSON грузим ПОСЛЕДНИЕ 7 ЗАВЕРШЁННЫХ
+  // UTC-ДНЕЙ из Vision. Окно «катится» каждый день: сегодня 9-15 мая, завтра
+  // 10-16 мая — пользователь всегда смотрит актуальный рынок с настоящими
+  // кластерами. Per-day кэш в IndexedDB (`visionDays`) делает все после-первого
+  // загрузки мгновенными — нужно скачать только новые сутки.
+  //
+  // Цена: первая загрузка нового символа на новой машине = 1-3 мин (7×Vision-
+  // дней). Это разовое — далее ~10-20 сек/день при сдвиге окна.
+  //
+  // prebuiltUrl больше не используется и может быть удалён после миграции.
   // ============================================================================
   useEffect(() => {
     const info = findSymbol(symbol);
@@ -357,8 +364,8 @@ export default function App() {
     setStatus({
       kind: 'loading',
       loaded: 0,
-      total: 1,
-      label: `Загрузка ${info.short}/USDT…`,
+      total: 7,
+      label: `Загрузка ${info.short}/USDT (7д Vision)…`,
     });
     // Сбрасываем то, что относилось к ПРЕДЫДУЩЕМУ символу — чтобы не показать
     // несовпадающие данные на полсекунды при переключении.
@@ -369,14 +376,28 @@ export default function App() {
 
     (async () => {
       try {
-        const ds = await loadDatasetFromUrl(info.prebuiltUrl, ac.signal);
+        const dataset = await fetchVisionDataset({
+          symbol,
+          tickSize: info.tickSize,
+          days: 7,
+          signal: ac.signal,
+          onProgress: (p: ProgressInfo) => {
+            if (cancelled) return;
+            setStatus({
+              kind: 'loading',
+              loaded: p.dayIndex,
+              total: p.daysTotal,
+              label: `${info.short}/USDT: ${p.date} (${p.stage})`,
+            });
+          },
+        });
         if (cancelled) return;
-        const ltf = ds.candles;
+        const ltf = dataset.candles;
         setRawData5m(ltf);
         setStatus({
           kind: 'success',
-          source: 'file',
-          message: `${info.short}/USDT: ${ltf.length} × 5m (${ds.meta.from.slice(0, 10)} … ${ds.meta.to.slice(0, 10)})`,
+          source: 'vision',
+          message: `${info.short}/USDT: 7д Vision · ${ltf.length} × 5m (${dataset.meta.from.slice(0, 10)} … ${dataset.meta.to.slice(0, 10)})`,
         });
         // Reset viewport, чтобы цена нового инструмента отрисовалась корректно.
         requestAnimationFrame(() => {
@@ -385,16 +406,11 @@ export default function App() {
       } catch (e) {
         if ((e as { name?: string }).name === 'AbortError') return;
         const msg = (e as Error).message ?? '';
-        if (/HTTP 404/.test(msg)) {
-          // Тихий случай — файла просто нет.
-          setStatus({ kind: 'idle' });
-        } else {
-          console.warn('[prebuilt] не удалось загрузить', info.prebuiltUrl, e);
-          setStatus({
-            kind: 'error',
-            message: `Не удалось загрузить ${info.short}/USDT: ${msg}`,
-          });
-        }
+        console.warn('[vision-7d] не удалось загрузить', symbol, e);
+        setStatus({
+          kind: 'error',
+          message: `Не удалось загрузить 7д Vision для ${info.short}/USDT: ${msg}`,
+        });
       }
     })();
     return () => {
