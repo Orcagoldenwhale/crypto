@@ -141,7 +141,7 @@ export function SmcSettingsPopover({
               />
               <NumberField
                 label="Допуск equal-highs/lows (%)"
-                hint="близость двух swing-points как доля от цены"
+                hint="0 = АВТО (адаптивный, из медианной свечи × 0.3 — работает на любой монете). >0 = ручной % от цены."
                 value={+(options.equalityTolerancePct * 100).toFixed(2)}
                 min={0}
                 max={5}

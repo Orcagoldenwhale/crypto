@@ -322,7 +322,10 @@ export const DEFAULT_HIDE_MITIGATED: SmcHideMitigated = Object.freeze({
 
 export const DEFAULT_SMC_OPTIONS: SmcOptions = Object.freeze({
   lookback: 5,
-  equalityTolerancePct: 0.0005,
+  // 0 = АВТО (адаптивный tolerance из медианной свечи × 0.3). Работает
+  // надёжно на любой монете без ручной подгонки — см. detectLiquidity.ts.
+  // Старое поведение (0.05% от цены) → поставить 0.0005.
+  equalityTolerancePct: 0,
   hideMitigated: DEFAULT_HIDE_MITIGATED,
   minFvgPct: 0.1,
   fvgMaxFillPct: 50,

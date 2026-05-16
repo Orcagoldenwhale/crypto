@@ -31,8 +31,47 @@ interface OhlcCandle {
 export interface DetectLiquidityOptions {
   /** Окно по lookback с каждой стороны для swing-point. */
   lookback: number;
-  /** Допустимая разница между equal-highs/lows как доля от цены. */
+  /**
+   * Допустимая разница между equal-highs/lows как доля от цены.
+   * 0 = АВТО: tolerance = медианный размер свечи × ADAPTIVE_TOL_K. Это
+   * адаптивно к волатильности монеты и не требует крутить руками при смене
+   * символа (BTC vs SOL vs TON).
+   * >0 = ручной режим: tolerance = price × equalityTolerancePct (старое
+   * поведение, бэкомпат с тестами и сохранёнными настройками).
+   */
   equalityTolerancePct: number;
+}
+
+/**
+ * Доля от медианной свечи, в пределах которой два swing-point считаются
+ * «равными» в auto-режиме. 0.3 = эмпирически подобрано: дает разумно широкие
+ * группы на крипте, не схлопывая разные уровни. На SOL 5m (medianRange ~$1)
+ * это ~$0.30, на BTC 5m ($100) — $30, на TON 5m ($0.02) — $0.006.
+ */
+const ADAPTIVE_TOL_K = 0.3;
+
+/**
+ * Сколько последних свечей берём для медианы. Достаточно небольшого окна —
+ * волатильность меняется медленно, а медиана устойчива к выбросам.
+ */
+const ADAPTIVE_SAMPLE_SIZE = 200;
+
+/**
+ * Adaptive абсолютный tolerance из реальной волатильности данных.
+ * Возвращает 0 если данных нет (caller должен fallback).
+ */
+function computeAdaptiveToleranceAbs(arr: readonly OhlcCandle[]): number {
+  if (arr.length === 0) return 0;
+  const n = Math.min(ADAPTIVE_SAMPLE_SIZE, arr.length);
+  const ranges: number[] = new Array(n);
+  const start = arr.length - n;
+  for (let i = 0; i < n; i++) {
+    const c = arr[start + i]!;
+    ranges[i] = c.high - c.low;
+  }
+  ranges.sort((a, b) => a - b);
+  const median = ranges[Math.floor(ranges.length / 2)]!;
+  return median * ADAPTIVE_TOL_K;
 }
 
 /**
@@ -51,8 +90,14 @@ export function findLiquidityZones(
   const swingHighs = findSwingPoints(arr, lookback, 'high');
   const swingLows = findSwingPoints(arr, lookback, 'low');
 
-  const highGroups = groupByPrice(swingHighs, equalityTolerancePct);
-  const lowGroups = groupByPrice(swingLows, equalityTolerancePct);
+  // Auto-mode: pct=0 → берём абсолютный tolerance из медианы свечи.
+  // Это устойчиво работает на любой монете и волатильности, без ручной
+  // подгонки при смене символа.
+  const adaptiveAbsTol = equalityTolerancePct === 0
+    ? computeAdaptiveToleranceAbs(arr)
+    : 0;
+  const highGroups = groupByPrice(swingHighs, equalityTolerancePct, adaptiveAbsTol);
+  const lowGroups = groupByPrice(swingLows, equalityTolerancePct, adaptiveAbsTol);
 
   const out: LiquidityZone[] = [];
 
@@ -126,13 +171,20 @@ function findSwingPoints(
  * группу, где `|avg - price| / avg <= tolerance`. Если нашли — добавляем,
  * average пересчитываем (running mean).
  */
-function groupByPrice(points: SwingPoint[], tolerance: number): PriceGroup[] {
+function groupByPrice(
+  points: SwingPoint[],
+  tolerancePct: number,
+  adaptiveAbsTol: number,
+): PriceGroup[] {
   const groups: PriceGroup[] = [];
   for (const p of points) {
     let attached = false;
     for (const g of groups) {
       const diff = Math.abs(g.price - p.price);
-      if (diff / g.price <= tolerance) {
+      // Auto mode: используем абсолютный tolerance (медиана × K).
+      // Manual mode (pct > 0): доля от цены.
+      const allowed = adaptiveAbsTol > 0 ? adaptiveAbsTol : g.price * tolerancePct;
+      if (diff <= allowed) {
         g.points.push(p);
         // running mean
         g.price =
