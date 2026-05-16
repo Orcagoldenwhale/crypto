@@ -372,10 +372,15 @@ export function ChartCanvas({
         });
       }
 
-      // SMC-оверлей (FVG, ликвидность) — только при HTF-поведении.
+      // SMC-оверлей (FVG, ликвидность, OB, BB, RB, структура, PDH/PDL,
+      // compression) — рисуется на ЛЮБОМ chartRole (htf / ltf / single).
+      // Раньше было ограничение htfBehaviour, но это ломало UX в multi-TF
+      // парах (15m-5m, 1h-15m): юзер клик'ает Liquidity в Toolbox'е на LTF-
+      // экране, а ничего не появляется. Зоны имеют абсолютные timestamps,
+      // корректно мапятся на любую шкалу. Single-режим уже это рисовал.
       // Рисуем ПОСЛЕ свечей, но ДО маркеров сигналов/подсветки, чтобы
       // зоны не закрывали интерактивные элементы.
-      if (htfBehaviour && smcOverlay) {
+      if (smcOverlay) {
         renderSmcOverlay({ ctx, metrics, viewport, overlay: smcOverlay, useBslSslLabels: liqUseBslSslLabels });
       }
 
