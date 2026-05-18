@@ -15,7 +15,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Play, Pause, Rocket, X, Square, Star, Trash2, Save, RotateCcw, FolderOpen } from 'lucide-react';
-import type { BacktestSettings } from '@/backtest/types';
+import type { BacktestReport, BacktestSettings } from '@/backtest/types';
 import type { SmcLayers, SmcOptions } from '@/engine/smc/types';
 import type { TfPairId } from '@/types';
 import { TF_PAIR_OPTIONS } from '@/data/tfPairs';
@@ -112,12 +112,17 @@ interface OptimizerPanelProps {
   tfPairId: TfPairId;
   /**
    * Колбэк после применения параметров (inline или saved). Получает финальные
-   * BT-настройки. App.tsx использует его чтобы закрыть оптимизатор, открыть
-   * BacktestPanel и прогнать бэктест на восстановленных условиях.
-   * Без этого «Применить» только меняет state — пользователь должен вручную
-   * закрыть модалку и нажать «Запустить».
+   * BT-настройки и (опционально) ТОТ САМЫЙ report из OptimizerResult.
+   *
+   * Если report передан — App показывает его в BacktestPanel напрямую. Так
+   * пользователь видит ровно те цифры, которые оптимизатор показал в строке.
+   * Это гарантирует bit-perfect совпадение и убирает класс багов «Apply
+   * перепрогнал, цифры разъехались» (state-race условия).
+   *
+   * Если report не передан (Saved-tab Apply — у SavedResult полного отчёта
+   * нет) — App падает в fallback на handleRunBacktest, как раньше.
    */
-  onApplyComplete?: (mergedSettings: BacktestSettings) => void;
+  onApplyComplete?: (mergedSettings: BacktestSettings, report?: BacktestReport) => void;
   /**
    * Текущая активная extended-выборка. null = на 7-дневном prebuilt-датасете.
    * Если выбрано (10000/25000/50000/100000) — оптимизатор крутится на этом
@@ -376,7 +381,14 @@ export function OptimizerPanel({
    * В конце дёргает onApplyComplete с финальными BT-настройками — это сигнал
    * App.tsx закрыть оптимизатор, открыть BacktestPanel и перепрогнать.
    */
-  const applySaved = (s: SavedResult) => {
+  /**
+   * Второй параметр report — это полный отчёт из OptimizerResult (только для
+   * inline-apply, у SavedResult полного нет). App отдаст его в BacktestPanel
+   * напрямую, чтобы циферки сошлись bit-to-bit с тем что оптимизатор показал
+   * в строке. Saved-apply передаёт undefined → App перерасчитает через
+   * handleRunBacktest.
+   */
+  const applySaved = (s: SavedResult, report?: BacktestReport) => {
     devLog('apply-saved', {
       savedId: s.id,
       savedSymbol: s.symbol ?? null,
@@ -389,6 +401,7 @@ export function OptimizerPanel({
       tfPairMismatch: s.tfPairId && s.tfPairId !== tfPairId,
       savedScore: s.score,
       savedSummary: s.summary,
+      hasInlineReport: report !== undefined,
     });
     applySavedResult(s, {
       baseSettings,
@@ -402,15 +415,15 @@ export function OptimizerPanel({
     });
     if (onApplyComplete) {
       const merged: BacktestSettings = { ...baseSettings, ...s.btParams };
-      onApplyComplete(merged);
+      onApplyComplete(merged, report);
     }
   };
 
   /**
-   * Применение inline-результата (строка таблицы top-N). Заворачиваем
-   * OptimizerResult в SavedResult-обёртку через snapshotResult с ТЕКУЩИМИ
-   * tfPairId / smcLayers — это правильный контекст, потому что грид крутился
-   * именно на них. Дальше идём по тому же пути, что и Saved Apply.
+   * Применение inline-результата (строка таблицы top-N). Передаёт ПОЛНЫЙ
+   * r.report в applySaved → дальше в onApplyComplete → App покажет его без
+   * перерасчёта. Это убирает все state-race условия типа «оптимизатор
+   * показал 145 сделок, после Apply backtest показывает 40».
    */
   const applyInlineResult = (r: OptimizerResult) => {
     const synthetic = snapshotResult(r, optSettings.metric, {
@@ -419,7 +432,7 @@ export function OptimizerPanel({
       smcLayers,
       currentScope,
     });
-    applySaved(synthetic);
+    applySaved(synthetic, r.report);
   };
 
   useEffect(() => {

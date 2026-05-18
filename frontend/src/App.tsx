@@ -215,7 +215,14 @@ export default function App() {
    * Без RAF бэктест прогонится на устаревшем overlay → не сойдётся с тем
    * что показал оптимизатор.
    */
-  const pendingOptApplyRef = useRef<BacktestSettings | null>(null);
+  /**
+   * settings — финальные BT-настройки для перепрогона; report — опционально
+   * полный отчёт из OptimizerResult (для inline-apply, у Saved нет trades).
+   */
+  const pendingOptApplyRef = useRef<{
+    settings: BacktestSettings;
+    report: BacktestReportData | null;
+  } | null>(null);
   const [pendingOptApplyTrigger, setPendingOptApplyTrigger] = useState(0);
 
   // Расширенный бэктест: загружает длинную Vision-выборку, ПОДМЕНЯЕТ
@@ -778,30 +785,54 @@ export default function App() {
    * opts, BT settings, tick mult). Нам надо:
    *   1) Закрыть модалку оптимизатора (она fullscreen → иначе график не видно)
    *   2) Открыть BacktestPanel (чтобы пользователь сразу видел итоговый отчёт)
-   *   3) Перепрогнать backtest на восстановленных условиях
+   *   3) Показать в BacktestPanel результат:
+   *      — inline Apply: тот САМЫЙ report из OptimizerResult (bit-perfect
+   *        совпадение с тем что пользователь видел в строке таблицы);
+   *      — Saved Apply: report отсутствует (SavedResult хранит только slim
+   *        summary без массива trades) → fallback на handleRunBacktest.
    *
-   * Шаг 3 — через ref + trigger + useEffect: state-changes из шага 1 ещё не
-   * прокинулись через useMemo (ltfData, smcOverlay). RAF в effect даёт им
-   * один кадр чтобы settle, и тогда handleRunBacktest читает свежие зависимости.
+   * Раньше тут был auto-rerun через handleRunBacktest для обоих путей. Это
+   * вызывало state-race condition: optimizer показал X сделок, после Apply
+   * перерасчёт давал Y. С передачей report напрямую — гарантированный
+   * bit-perfect match.
    */
-  const handleOptimizerApplyComplete = useCallback((merged: BacktestSettings) => {
-    pendingOptApplyRef.current = merged;
-    setOptimizerOpen(false);
-    setBacktestOpen(true);
-    setPendingOptApplyTrigger((t) => t + 1);
-  }, []);
+  const handleOptimizerApplyComplete = useCallback(
+    (merged: BacktestSettings, report?: BacktestReportData) => {
+      pendingOptApplyRef.current = { settings: merged, report: report ?? null };
+      setOptimizerOpen(false);
+      setBacktestOpen(true);
+      setPendingOptApplyTrigger((t) => t + 1);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (pendingOptApplyTrigger === 0) return;
-    const settings = pendingOptApplyRef.current;
-    if (!settings) return;
-    // Mutate ref (не state) — лишний ре-рендер ни к чему, флаг trigger уже
-    // увеличился и сам себя один раз обработает.
+    const pending = pendingOptApplyRef.current;
+    if (!pending) return;
     pendingOptApplyRef.current = null;
     requestAnimationFrame(() => {
-      handleRunBacktest(settings);
+      if (pending.report) {
+        // Inline-apply: показываем report из OptimizerResult напрямую.
+        // Zones для chart-render считаем из текущего smcOverlay — он к
+        // этому кадру уже обновился под применённые smcLayers/smcOpts.
+        const zones = collectZones(smcOverlay, pending.settings.zoneGapPct);
+        setBacktestZones(zones);
+        setBacktestReport(pending.report);
+        setBacktestRunning(false);
+        setSelectedBacktestTradeId(null);
+        devLog('apply-direct-report', {
+          totalTrades: pending.report.totalTrades,
+          wins: pending.report.wins,
+          losses: pending.report.losses,
+          totalPnlR: pending.report.totalPnlR,
+        });
+      } else {
+        // Saved-apply: report не передан, fallback на перерасчёт.
+        handleRunBacktest(pending.settings);
+      }
     });
-  }, [pendingOptApplyTrigger, handleRunBacktest]);
+  }, [pendingOptApplyTrigger, smcOverlay, handleRunBacktest]);
 
   /**
    * Расширенный бэктест: загружает N свечей из Vision (с кластерами) и

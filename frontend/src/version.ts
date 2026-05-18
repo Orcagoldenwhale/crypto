@@ -7,7 +7,7 @@
  * Время сборки приходит из Vite через `define` в `vite.config.ts`.
  */
 
-export const APP_VERSION = '1.51.1';
+export const APP_VERSION = '1.52.0';
 
 /** ISO-8601 timestamp момента запуска dev-сервера (или сборки). */
 export const BUILD_TIME: string =
