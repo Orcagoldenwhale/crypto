@@ -821,17 +821,41 @@ export default function App() {
         setBacktestReport(pending.report);
         setBacktestRunning(false);
         setSelectedBacktestTradeId(null);
+        // ПОЛНОЕ состояние ПОСЛЕ Apply — сверять с apply-saved (что было
+        // передано) и с optimizer:run-* (что было в оптимизаторе). Любой
+        // разъезд тут указывает на пропавший setter или замороженное value.
         devLog('apply-direct-report', {
-          totalTrades: pending.report.totalTrades,
-          wins: pending.report.wins,
-          losses: pending.report.losses,
-          totalPnlR: pending.report.totalPnlR,
+          // Что показано пользователю в BacktestPanel:
+          report: {
+            totalTrades: pending.report.totalTrades,
+            wins: pending.report.wins,
+            losses: pending.report.losses,
+            openTrades: pending.report.openTrades,
+            winRate: pending.report.winRate,
+            totalPnlR: pending.report.totalPnlR,
+            avgPnlR: pending.report.avgPnlR,
+            maxConsecutiveLosses: pending.report.maxConsecutiveLosses,
+          },
+          // Финальные настройки в App-state (после propagation):
+          appliedBacktestSettings: backtestSettings,
+          appliedSmcOpts: smcOpts,
+          appliedSmcLayers: smcLayers,
+          appliedTfPairId: tfPairId,
+          appliedTickPref: tickPref,
+          extendedCandleCountActive,
+          // Zones из текущего overlay (для визуала):
+          zonesCount: zones.length,
+          ltfDataLen: ltfData.length,
         });
       } else {
         // Saved-apply: report не передан, fallback на перерасчёт.
         handleRunBacktest(pending.settings);
       }
     });
+    // Эффект должен fire'ить только на смену pendingOptApplyTrigger (или
+    // когда smcOverlay/handleRunBacktest пересоздались под новый state).
+    // Остальные state-поля внутри читаются для devLog-снэпшота — не deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingOptApplyTrigger, smcOverlay, handleRunBacktest]);
 
   /**

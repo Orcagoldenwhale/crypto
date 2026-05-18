@@ -395,13 +395,38 @@ export function OptimizerPanel({
       savedTfPairId: s.tfPairId ?? null,
       savedTickMult: s.dataParams.tickMultiplier ?? null,
       savedSmcLayers: s.smcLayers ?? null,
+      savedScope: s.currentScope ?? null,
+      // ПОЛНЫЕ overrides — то что реально идёт в applySavedResult.
+      // Если что-то «не применилось» — увидим в этих полях что именно
+      // передавалось в onApply* колбэки.
+      savedBtParams: s.btParams,
+      savedSmcParams: s.smcParams,
+      // App-state ДО Apply — для сравнения base vs applied.
       currentSymbol: symbol,
       currentTfPairId: tfPairId,
+      currentSmcLayers: smcLayers,
+      currentScope,
+      // baseSettings + savedBtParams = что станет backtestSettings.
+      // baseSmcOpts + savedSmcParams = что станет smcOpts.
+      effectiveSettings: { ...baseSettings, ...s.btParams },
+      effectiveSmcOpts: { ...baseSmcOpts, ...s.smcParams },
+      // Mismatches важные для ловли багов.
       symbolMismatch: s.symbol && s.symbol !== symbol,
       tfPairMismatch: s.tfPairId && s.tfPairId !== tfPairId,
+      scopeMismatch: s.currentScope !== undefined && s.currentScope !== currentScope,
+      // Report bit-perfect path (1.52.0+) vs fallback на handleRunBacktest.
       savedScore: s.score,
       savedSummary: s.summary,
       hasInlineReport: report !== undefined,
+      inlineReportSummary: report
+        ? {
+            totalTrades: report.totalTrades,
+            wins: report.wins,
+            losses: report.losses,
+            winRate: report.winRate,
+            totalPnlR: report.totalPnlR,
+          }
+        : null,
     });
     applySavedResult(s, {
       baseSettings,
